@@ -4,6 +4,10 @@ from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
 import uvicorn
 import websockets  # For WS handling
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 CAMERAS = ["camera1", "camera2"]
 latest_frames = {cam: None for cam in CAMERAS}
@@ -19,7 +23,6 @@ async def stream_frames(cam_name: str):
                        latest_frames[cam_name] + b'\r\n')
         await asyncio.sleep(0.033)  # 30 FPS
 
-app = FastAPI()
 
 @app.get("/stream/{cam_name}")
 async def get_stream(cam_name: str):
