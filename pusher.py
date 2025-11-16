@@ -5,7 +5,6 @@ import json
 
 CAMERAS = {
     "camera1": "rtsp://192.168.31.78:5543/live/channel0",
-    "camera2": "rtsp://192.168.31.XX:5543/live/channel0"  # Update XX
 }
 
 RENDER_WS_BASE = "https://camera-relay.onrender.com"  # Your Render URL
