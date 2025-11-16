@@ -7,7 +7,7 @@ CAMERAS = {
     "camera1": "rtsp://192.168.31.78:5543/live/channel0",
 }
 
-RENDER_WS_BASE = "https://camera-relay.onrender.com"  # Your Render URL
+RENDER_WS_BASE = "wss://camera-relay.onrender.com"  # Your Render URL
 
 async def push_camera(cam_name):
     rtsp_url = CAMERAS[cam_name]
