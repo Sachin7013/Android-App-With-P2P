@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -10,6 +11,7 @@ CAMERAS = ["camera1", "camera2"]
 latest_frames = {cam: None for cam in CAMERAS}
 frame_locks = {cam: asyncio.Lock() for cam in CAMERAS}
 websocket_connections = {cam: None for cam in CAMERAS}
+connection_counter = itertools.count(1)
 
 
 @asynccontextmanager
@@ -54,32 +56,44 @@ async def get_stream(cam_name: str):
 @app.websocket("/ws/{cam_name}")
 async def websocket_endpoint(websocket: WebSocket, cam_name: str):
     client = websocket.client
-    print(f"🔌 Incoming WS handshake from {client} for {cam_name}")
+    conn_id = next(connection_counter)
+    print(f"🔌 WS#{conn_id} incoming handshake from {client} for {cam_name}")
     if cam_name not in CAMERAS:
-        print(f"❌ Rejecting WS for unknown camera: {cam_name}")
+        print(f"❌ WS#{conn_id} rejecting unknown camera: {cam_name}")
         await websocket.close(code=1008)
         return
     try:
         await websocket.accept()
         websocket_connections[cam_name] = websocket
-        print(f"✅ {cam_name} WS connected from home! Active: {bool(latest_frames[cam_name])}")
+        print(
+            f"✅ WS#{conn_id} {cam_name} connected from {client}. "
+            f"Has_cached_frame={bool(latest_frames[cam_name])}"
+        )
     except Exception as exc:
-        print(f"🚫 Error accepting WS for {cam_name}: {exc}")
+        print(f"🚫 WS#{conn_id} error during accept for {cam_name}: {exc!r}")
         raise
     try:
+        frame_counter = 0
         while True:
             data = await websocket.receive_bytes()  # Receive JPEG bytes
             async with frame_locks[cam_name]:
                 latest_frames[cam_name] = data
+            frame_counter += 1
+            if frame_counter % 120 == 0:
+                print(f"📥 WS#{conn_id} stored {frame_counter} frames for {cam_name}")
             if websocket.application_state.name != "CONNECTED":
-                print(f"⚠️ WS state transitioned to {websocket.application_state} for {cam_name}")
-    except WebSocketDisconnect:
-        print(f"❌ {cam_name} WS disconnected")
+                print(
+                    f"⚠️ WS#{conn_id} state -> {websocket.application_state.name} "
+                    f"while receiving {cam_name}"
+                )
+    except WebSocketDisconnect as exc:
+        print(f"❌ WS#{conn_id} disconnected for {cam_name}, code={exc.code}")
     except Exception as exc:
-        print(f"🔥 Unexpected WS error for {cam_name}: {exc}")
+        print(f"🔥 WS#{conn_id} unexpected error for {cam_name}: {exc!r}")
         raise
     finally:
         websocket_connections[cam_name] = None
+        print(f"🔚 WS#{conn_id} closed for {cam_name}")
 
 
 @app.get("/")
