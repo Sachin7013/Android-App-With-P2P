@@ -22,7 +22,17 @@
 
       pc.ontrack = (event) => {
         console.log("ontrack", event);
-        remoteVideo.srcObject = event.streams[0];
+        const [stream] = event.streams;
+        if (stream) {
+          remoteVideo.srcObject = stream;
+        } else {
+          const inboundStream = remoteVideo.srcObject instanceof MediaStream
+            ? remoteVideo.srcObject
+            : new MediaStream();
+          inboundStream.addTrack(event.track);
+          remoteVideo.srcObject = inboundStream;
+        }
+        remoteVideo.play().catch((err) => console.warn("remoteVideo play() interrupted", err));
       };
 
       pc.onicecandidate = (evt) => {
