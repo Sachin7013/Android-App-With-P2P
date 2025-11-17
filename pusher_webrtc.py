@@ -8,6 +8,7 @@ from aiortc import (
     RTCIceServer,
 )
 from aiortc.contrib.media import MediaPlayer
+from aiortc.contrib.signaling import candidate_from_sdp
 import websockets
 
 # CONFIG
@@ -91,13 +92,20 @@ async def run():
                     print("[pusher] received answer")
                     await pc.setRemoteDescription(RTCSessionDescription(sdp=obj["sdp"], type="answer"))
                 elif typ == "ice":
-                    c = obj.get("candidate", {})
+                    c = obj.get("candidate") or {}
+                    cand_str = c.get("candidate")
+                    if not cand_str:
+                        await pc.addIceCandidate(None)
+                        print("[pusher] remote ICE completed")
+                        continue
                     try:
-                        cand = RTCIceCandidate(sdpMid=c.get("sdpMid"), sdpMLineIndex=c.get("sdpMLineIndex"), candidate=c.get("candidate"))
+                        cand = candidate_from_sdp(cand_str)
+                        cand.sdpMid = c.get("sdpMid")
+                        cand.sdpMLineIndex = c.get("sdpMLineIndex")
                         await pc.addIceCandidate(cand)
                         print("[pusher] added remote ICE candidate")
                     except Exception as e:
-                        print("[pusher] failed add remote ice:", e)
+                        print("[pusher] failed add remote ice:", e, c)
                 else:
                     print("[pusher] unknown message", typ)
     except Exception as e:
