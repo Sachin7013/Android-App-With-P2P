@@ -1,75 +1,144 @@
-<!-- viewer.html -->
 <!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>WebRTC Viewer</title>
-  </head>
-  <body>
-    <h3>Viewer</h3>
-    <video id="remoteVideo" autoplay playsinline controls style="width:100%;max-height:70vh;background:#000"></video>
-    <script>
-      const signalingUrl = "wss://camera-relay.onrender.com/ws/viewer1"; 
-      const camId = "camera1";
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" }
-          // Add TURN here for production
-        ]
-      });
+<head>
+  <meta charset="utf-8" />
+  <title>WebRTC Viewer</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 12px; }
+    #status { margin: 8px 0; color: #333; }
+    #log { white-space: pre-wrap; background:#f7f7f7; padding:8px; border:1px solid #ddd; height:140px; overflow:auto; }
+    video { width:100%; max-height:70vh; background:#000; display:block; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <h3>Viewer</h3>
+  <div id="status">Status: starting...</div>
+  <div id="log"></div>
+  <video id="remoteVideo" autoplay playsinline muted controls></video>
 
-      const remoteVideo = document.getElementById("remoteVideo");
+  <script>
+    // ========== CONFIGURE HERE ==========
+    const SIGNALING_WSS = "wss://camera-relay.onrender.com/ws/viewer1"; // viewer WS endpoint
+    const CAMERA_ID = "camera1";                                         // expected camera id
+    // TURN server credentials you provided
+    const TURN_URL = "turn:relay1.expressturn.com:3480";
+    const TURN_USERNAME = "000000002078730066";
+    const TURN_PASSWORD = "dEwJy42Qu8kox+L9Bp1tgkBa0iw=";
+    // =====================================
 
-      pc.ontrack = (event) => {
-        console.log("ontrack", event);
-        const [stream] = event.streams;
-        if (stream) {
-          remoteVideo.srcObject = stream;
-        } else {
-          const inboundStream = remoteVideo.srcObject instanceof MediaStream
-            ? remoteVideo.srcObject
-            : new MediaStream();
-          inboundStream.addTrack(event.track);
-          remoteVideo.srcObject = inboundStream;
+    const statusEl = document.getElementById("status");
+    const logEl = document.getElementById("log");
+    function log(...args) {
+      const s = args.map(a => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ");
+      console.log(...args);
+      logEl.textContent += s + "\n";
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    function setStatus(s) {
+      statusEl.textContent = "Status: " + s;
+      log(s);
+    }
+
+    setStatus("creating PeerConnection...");
+
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: TURN_URL, username: TURN_USERNAME, credential: TURN_PASSWORD }
+      ]
+    });
+
+    const remoteVideo = document.getElementById("remoteVideo");
+    remoteVideo.muted = true;      // helps autoplay on mobile
+    remoteVideo.playsInline = true;
+
+    pc.oniceconnectionstatechange = () => {
+      log("PC ICE state:", pc.iceConnectionState);
+      setStatus("ICE state: " + pc.iceConnectionState);
+    };
+    pc.onconnectionstatechange = () => {
+      log("PC connection state:", pc.connectionState);
+      setStatus("connection state: " + pc.connectionState);
+    };
+
+    pc.ontrack = (evt) => {
+      log("ontrack event", evt);
+      const [stream] = evt.streams;
+      if (stream) {
+        remoteVideo.srcObject = stream;
+      } else {
+        // fallback: attach individual track
+        const inbound = new MediaStream();
+        inbound.addTrack(evt.track);
+        remoteVideo.srcObject = inbound;
+      }
+      // try auto-play
+      remoteVideo.play().then(()=> log("remoteVideo.play() succeeded")).catch(e => log("remoteVideo.play() failed:", e));
+    };
+
+    pc.onicecandidate = (evt) => {
+      if (!evt.candidate) return;
+      const msg = {
+        type: "ice",
+        from: "viewer1",
+        to: CAMERA_ID,
+        candidate: {
+          candidate: evt.candidate.candidate,
+          sdpMid: evt.candidate.sdpMid,
+          sdpMLineIndex: evt.candidate.sdpMLineIndex
         }
-        remoteVideo.play().catch((err) => console.warn("remoteVideo play() interrupted", err));
       };
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+        log("Sent local ICE -> signaling");
+      }
+    };
 
-      pc.onicecandidate = (evt) => {
-        if (evt.candidate) {
-          const msg = { type: "ice", from: "viewer1", to: camId, candidate: {
-            candidate: evt.candidate.candidate,
-            sdpMid: evt.candidate.sdpMid,
-            sdpMLineIndex: evt.candidate.sdpMLineIndex
-          }};
-          ws.send(JSON.stringify(msg));
+    // Signaling WebSocket
+    let ws;
+    try {
+      ws = new WebSocket(SIGNALING_WSS);
+    } catch (e) {
+      log("WebSocket construction error:", e);
+      setStatus("WS error");
+      throw e;
+    }
+
+    ws.onopen = () => {
+      log("WS open:", SIGNALING_WSS);
+      setStatus("WS open - waiting for offer...");
+      // Optionally announce ready (not required)
+      // ws.send(JSON.stringify({ type: "ready", from: "viewer1", to: CAMERA_ID }));
+    };
+
+    ws.onmessage = async (evt) => {
+      log("WS message (truncated):", (evt.data||"").slice(0,200));
+      let obj;
+      try { obj = JSON.parse(evt.data); } catch (e) { log("Invalid JSON", e); return; }
+
+      if (obj.type === "offer") {
+        log("Received offer");
+        setStatus("Received offer, creating answer...");
+        await pc.setRemoteDescription({ type: "offer", sdp: obj.sdp });
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        ws.send(JSON.stringify({ type: "answer", from: "viewer1", to: obj.from, sdp: pc.localDescription.sdp }));
+        log("Sent answer");
+        setStatus("Sent answer, waiting ICE...");
+      } else if (obj.type === "ice") {
+        try {
+          await pc.addIceCandidate({ candidate: obj.candidate.candidate, sdpMid: obj.candidate.sdpMid, sdpMLineIndex: obj.candidate.sdpMLineIndex });
+          log("Added remote ICE candidate");
+        } catch (e) {
+          log("addIceCandidate error:", e);
         }
-      };
+      } else {
+        log("Unknown message type:", obj.type);
+      }
+    };
 
-      let ws = new WebSocket(signalingUrl);
-      ws.onopen = () => {
-        console.log("WS open", signalingUrl);
-      };
-
-      ws.onmessage = async (evt) => {
-        console.log("WS msg:", evt.data.slice(0,200));
-        const obj = JSON.parse(evt.data);
-        if (obj.type === "offer") {
-          console.log("Got offer");
-          await pc.setRemoteDescription({ type: "offer", sdp: obj.sdp });
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          ws.send(JSON.stringify({ type: "answer", from: "viewer1", to: obj.from, sdp: pc.localDescription.sdp }));
-        } else if (obj.type === "ice") {
-          try {
-            await pc.addIceCandidate({candidate: obj.candidate.candidate, sdpMid: obj.candidate.sdpMid, sdpMLineIndex: obj.candidate.sdpMLineIndex});
-            console.log("Added remote ICE");
-          } catch (e) { console.warn("addIceCandidate failed", e); }
-        }
-      };
-
-      ws.onerror = (e) => console.error("WS err", e);
-      ws.onclose = () => console.log("WS closed");
-    </script>
-  </body>
+    ws.onerror = (e) => { log("WS error:", e); setStatus("WS error"); };
+    ws.onclose = () => { log("WS closed"); setStatus("WS closed"); };
+  </script>
+</body>
 </html>
