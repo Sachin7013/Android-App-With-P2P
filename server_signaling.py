@@ -4,6 +4,11 @@ from typing import Dict
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+VIEWER_FILE = BASE_DIR / "viewer.html"
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -43,6 +48,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 @app.get("/")
 async def root():
     return {"message":"Signaling server running"}
+
+
+@app.get("/viewer", response_class=HTMLResponse)
+async def serve_viewer():
+    if not VIEWER_FILE.exists():
+        return HTMLResponse("viewer.html not found", status_code=404)
+    return VIEWER_FILE.read_text(encoding="utf-8")
 
 if __name__ == "__main__":
     uvicorn.run("server_signaling:app", host="0.0.0.0", port=8000, log_level="info")

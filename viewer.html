@@ -10,6 +10,7 @@
     <video id="remoteVideo" autoplay playsinline controls style="width:100%;max-height:70vh;background:#000"></video>
     <script>
       const signalingUrl = "wss://camera-relay.onrender.com/ws/viewer1"; 
+      const camId = "camera1";
       const pc = new RTCPeerConnection({
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" }

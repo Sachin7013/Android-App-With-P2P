@@ -2,7 +2,13 @@
 import asyncio
 import json
 import os
-from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack, RTCIceCandidate
+from aiortc import (
+    RTCPeerConnection,
+    RTCSessionDescription,
+    RTCIceCandidate,
+    RTCConfiguration,
+    RTCIceServer,
+)
 from aiortc.contrib.media import MediaPlayer
 import websockets
 
@@ -10,12 +16,13 @@ import websockets
 SIGNALING_WS = "wss://camera-relay.onrender.com/ws/"  # replace with wss://camera-relay.onrender.com/ws/ when deployed
 CAM_NAME = "camera1"
 RTSP_URL = "rtsp://192.168.31.78:5543/live/channel0"
+VIEWER_ID = "viewer1"
 
 # ICE servers (start with google STUN, add TURN later)
-ICE_SERVERS = [{"urls": "stun:stun.l.google.com:19302"}]
+ICE_SERVERS = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
 
 async def run():
-    pc = RTCPeerConnection(configuration={"iceServers": ICE_SERVERS})
+    pc = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ICE_SERVERS))
     print("[pusher] created peer connection")
 
     # Use MediaPlayer to read RTSP and produce a video track
@@ -35,7 +42,7 @@ async def run():
             candidate = event
             if candidate is None:
                 return
-            msg = {"type":"ice", "from": CAM_NAME, "to": "viewer1", "candidate": {
+            msg = {"type":"ice", "from": CAM_NAME, "to": VIEWER_ID, "candidate": {
                 "candidate": candidate.to_sdp(), "sdpMid": candidate.sdpMid, "sdpMLineIndex": candidate.sdpMLineIndex
             }}
             await ws.send(json.dumps(msg))
@@ -44,7 +51,7 @@ async def run():
         # Create offer
         offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
-        msg = {"type":"offer", "from": CAM_NAME, "to": "viewer1", "sdp": pc.localDescription.sdp}
+        msg = {"type":"offer", "from": CAM_NAME, "to": VIEWER_ID, "sdp": pc.localDescription.sdp}
         await ws.send(json.dumps(msg))
         print("[pusher] sent offer")
 
