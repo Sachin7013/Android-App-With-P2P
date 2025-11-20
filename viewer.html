@@ -1,99 +1,435 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>WebRTC Viewer (with TURN debug)</title>
-  <style>
-    body{font-family:Arial;margin:8px}
-    #status{font-weight:bold}
-    #log{white-space:pre-wrap;background:#f7f7f7;border:1px solid #ddd;padding:8px;height:220px;overflow:auto}
-    video{width:100%;max-height:60vh;background:#000;margin-top:8px}
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STUN-Only P2P Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+            max-width: 1000px;
+            width: 100%;
+        }
+        
+        .header {
+            background: #333;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+        
+        .status.disconnected {
+            background: #ff4444;
+            color: white;
+        }
+        
+        .status.connecting {
+            background: #ffaa00;
+            color: white;
+        }
+        
+        .status.connected {
+            background: #00cc66;
+            color: white;
+        }
+        
+        .video-container {
+            position: relative;
+            background: #000;
+            width: 100%;
+            height: 0;
+            padding-bottom: 56.25%; /* 16:9 aspect ratio */
+        }
+        
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        
+        .info {
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #ddd;
+            font-size: 14px;
+        }
+        
+        .info-label {
+            color: #666;
+            font-weight: 500;
+        }
+        
+        .info-value {
+            color: #333;
+            font-weight: 600;
+        }
+        
+        .logs {
+            padding: 15px;
+            background: #1e1e1e;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+        
+        .log-entry {
+            margin-bottom: 3px;
+        }
+        
+        .log-error { color: #ff6b6b; }
+        .log-success { color: #51cf66; }
+        .log-warn { color: #ffd43b; }
+        .log-info { color: #74c0fc; }
+    </style>
 </head>
 <body>
-  <h3>Viewer</h3>
-  <div id="status">Status: starting...</div>
-  <div id="log"></div>
-  <video id="remoteVideo" autoplay playsinline muted controls></video>
+    <div class="container">
+        <div class="header">
+            <h1>📹 STUN-Only P2P Camera Viewer</h1>
+            <div class="status disconnected" id="status">Disconnected</div>
+        </div>
+        
+        <div class="video-container">
+            <video id="remoteVideo" autoplay playsinline controls></video>
+        </div>
+        
+        <div class="info">
+            <div class="info-row">
+                <span class="info-label">Viewer ID:</span>
+                <span class="info-value" id="viewerId">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Camera ID:</span>
+                <span class="info-value" id="cameraId">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">ICE Connection:</span>
+                <span class="info-value" id="iceState">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Connection Type:</span>
+                <span class="info-value" id="connectionType">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">ICE Candidates:</span>
+                <span class="info-value" id="candidateCount">0</span>
+            </div>
+        </div>
+        
+        <div class="logs" id="logs"></div>
+    </div>
 
-<script>
-  const LOG = document.getElementById('log');
-  function log(...a){ console.log(...a); LOG.textContent += a.join(' ') + '\n'; LOG.scrollTop = LOG.scrollHeight; }
-  function setStatus(s){ document.getElementById('status').textContent = 'Status: ' + s; log('STATUS:', s); }
-
-  // ---------- CONFIG ----------
-  const SIGNALING_WSS = "wss://camera-relay.onrender.com/ws/viewer1";
-  const CAMERA_ID = "camera1";
-
-  // STUN-only configuration: prefer direct peer-to-peer connectivity.
-  const ICE_SERVERS = [
-    { urls: "stun:stun.l.google.com:19302" }
-  ];
-  // ----------------------------
-
-  setStatus('creating RTCPeerConnection');
-  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-  const remoteVideo = document.getElementById('remoteVideo');
-  remoteVideo.muted = true; remoteVideo.playsInline = true;
-
-  pc.onicecandidate = (e) => {
-    if (!e.candidate) { log('ICE: gathering finished'); return; }
-    log('Local candidate:', e.candidate.candidate);
-    // You don't need to send local candidates here (signaling will handle in ontrack flow)
-    // but we'll send them to server so pusher can add them (we already do in our code)
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'ice', from: 'viewer1', to: CAMERA_ID, candidate: {
-        candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex
-      }}));
-      log('Sent local ICE candidate to signaling');
-    }
-  };
-
-  pc.onicegatheringstatechange = () => log('ICE gathering state:', pc.iceGatheringState);
-  pc.oniceconnectionstatechange = () => log('ICE connection state:', pc.iceConnectionState);
-  pc.onconnectionstatechange = () => log('Connection state:', pc.connectionState);
-
-  pc.ontrack = (evt) => {
-    log('ontrack', evt);
-    const [stream] = evt.streams;
-    if (stream) remoteVideo.srcObject = stream;
-    else {
-      const ms = remoteVideo.srcObject instanceof MediaStream ? remoteVideo.srcObject : new MediaStream();
-      ms.addTrack(evt.track);
-      remoteVideo.srcObject = ms;
-    }
-    remoteVideo.play().then(()=>log('play ok')).catch(e=>log('play error', e));
-  };
-
-  // Signaling WS
-  let ws;
-  try {
-    ws = new WebSocket(SIGNALING_WSS);
-  } catch (e){ log('WS construct error', e); setStatus('ws construct error'); throw e; }
-
-  ws.onopen = () => { log('WS open', SIGNALING_WSS); setStatus('WS open, waiting for offer'); };
-  ws.onclose = () => { log('WS closed'); setStatus('WS closed'); };
-  ws.onerror = (e) => { log('WS error', e); setStatus('WS error'); };
-
-  ws.onmessage = async (evt) => {
-    log('WS message (truncated):', (evt.data||'').slice(0,200));
-    const obj = JSON.parse(evt.data);
-    if (obj.type === 'offer'){
-      setStatus('Got offer; setting remote description');
-      await pc.setRemoteDescription({ type: 'offer', sdp: obj.sdp });
-      setStatus('Creating answer');
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      ws.send(JSON.stringify({ type: 'answer', from: 'viewer1', to: obj.from, sdp: pc.localDescription.sdp }));
-      setStatus('Answer sent; waiting ICE');
-      log('Answer sent');
-    } else if (obj.type === 'ice'){
-      try {
-        await pc.addIceCandidate({ candidate: obj.candidate.candidate, sdpMid: obj.candidate.sdpMid, sdpMLineIndex: obj.candidate.sdpMLineIndex });
-        log('Added remote ICE candidate');
-      } catch(e){ log('addIceCandidate err', e); }
-    }
-  };
-</script>
+    <script>
+        // ============================================================
+        // CONFIGURATION
+        // ============================================================
+        
+        // Match these with pusher_stun.py
+        const VIEWER_ID = 'viewer1';
+        const CAM_NAME = 'camera1';
+        
+        // Signaling server URL
+        // Option 1: Cloud server (for remote access)
+        const SIGNALING_WS = 'wss://camera-relay.onrender.com/ws/';
+        
+        // Option 2: Local server (same network only)
+        // const SIGNALING_WS = 'ws://localhost:8000/ws/';
+        
+        // ============================================================
+        // STUN-ONLY Configuration (Method 3: Aggressive)
+        // ============================================================
+        
+        const ICE_CONFIG = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
+            ],
+            iceCandidatePoolSize: 10,  // Aggressive gathering
+            iceTransportPolicy: 'all'  // Try all candidates
+        };
+        
+        // ============================================================
+        // Global variables
+        // ============================================================
+        
+        let pc;
+        let ws;
+        let candidateCount = 0;
+        
+        // Update UI
+        document.getElementById('viewerId').textContent = VIEWER_ID;
+        document.getElementById('cameraId').textContent = CAM_NAME;
+        
+        // ============================================================
+        // Initialize connection on page load
+        // ============================================================
+        
+        window.onload = () => {
+            log('🚀 Initializing STUN-only P2P connection...', 'info');
+            connectSignaling();
+        };
+        
+        // ============================================================
+        // Connect to signaling server
+        // ============================================================
+        
+        function connectSignaling() {
+            const wsUrl = SIGNALING_WS + VIEWER_ID;
+            log(`🔌 Connecting to signaling: ${wsUrl}`, 'info');
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                log('✅ Connected to signaling server', 'success');
+                updateStatus('connecting', 'Waiting for camera...');
+                createPeerConnection();
+            };
+            
+            ws.onmessage = async (event) => {
+                try {
+                    const obj = JSON.parse(event.data);
+                    await handleSignalMessage(obj);
+                } catch (e) {
+                    log(`❌ Error parsing message: ${e}`, 'error');
+                }
+            };
+            
+            ws.onerror = (error) => {
+                log(`❌ WebSocket error: ${error}`, 'error');
+                updateStatus('disconnected', 'Connection Error');
+            };
+            
+            ws.onclose = () => {
+                log('🔌 Signaling disconnected', 'warn');
+                updateStatus('disconnected', 'Disconnected');
+            };
+        }
+        
+        // ============================================================
+        // Create RTCPeerConnection
+        // ============================================================
+        
+        function createPeerConnection() {
+            log('🔗 Creating peer connection with STUN-only...', 'info');
+            
+            pc = new RTCPeerConnection(ICE_CONFIG);
+            
+            // Handle incoming video stream
+            pc.ontrack = (event) => {
+                log(`🎬 Received ${event.track.kind} track`, 'success');
+                const video = document.getElementById('remoteVideo');
+                
+                if (!video.srcObject) {
+                    video.srcObject = event.streams[0];
+                    log('✅ Video stream connected', 'success');
+                }
+            };
+            
+            // Handle ICE candidates
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    candidateCount++;
+                    document.getElementById('candidateCount').textContent = candidateCount;
+                    log(`🧩 Found ICE candidate #${candidateCount}`, 'info');
+                    
+                    // Send to camera via signaling
+                    ws.send(JSON.stringify({
+                        type: 'ice',
+                        from: VIEWER_ID,
+                        to: CAM_NAME,
+                        candidate: {
+                            candidate: event.candidate.candidate,
+                            sdpMid: event.candidate.sdpMid,
+                            sdpMLineIndex: event.candidate.sdpMLineIndex
+                        }
+                    }));
+                } else {
+                    log('✅ All ICE candidates gathered', 'success');
+                }
+            };
+            
+            // Monitor ICE connection state
+            pc.oniceconnectionstatechange = () => {
+                const state = pc.iceConnectionState;
+                document.getElementById('iceState').textContent = state;
+                log(`🔄 ICE State: ${state}`, 'info');
+                
+                if (state === 'connected' || state === 'completed') {
+                    updateStatus('connected', 'Direct P2P Connected ✅');
+                    log('🎉 Direct P2P connection established!', 'success');
+                    checkConnectionType();
+                } else if (state === 'failed') {
+                    updateStatus('disconnected', 'Connection Failed ❌');
+                    log('❌ P2P connection failed', 'error');
+                    log('💡 Possible reasons: Symmetric NAT, firewall blocking UDP', 'warn');
+                } else if (state === 'disconnected') {
+                    updateStatus('connecting', 'Reconnecting...');
+                    log('⚠️ Connection lost, attempting reconnect', 'warn');
+                }
+            };
+            
+            // Monitor overall connection state
+            pc.onconnectionstatechange = () => {
+                log(`🔄 Connection State: ${pc.connectionState}`, 'info');
+            };
+            
+            log('✅ Peer connection created', 'success');
+        }
+        
+        // ============================================================
+        // Handle signaling messages
+        // ============================================================
+        
+        async function handleSignalMessage(obj) {
+            const msgType = obj.type;
+            
+            if (msgType === 'offer') {
+                log('📥 Received SDP offer from camera', 'info');
+                
+                // Set remote description
+                await pc.setRemoteDescription({
+                    type: 'offer',
+                    sdp: obj.sdp
+                });
+                
+                // Create answer
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                
+                // Send answer back to camera
+                ws.send(JSON.stringify({
+                    type: 'answer',
+                    from: VIEWER_ID,
+                    to: CAM_NAME,
+                    sdp: pc.localDescription.sdp
+                }));
+                
+                log('📤 Sent SDP answer to camera', 'success');
+                updateStatus('connecting', 'Connecting...');
+                
+            } else if (msgType === 'ice') {
+                const c = obj.candidate || {};
+                const candStr = c.candidate;
+                
+                if (!candStr) {
+                    log('✅ Remote ICE gathering completed', 'success');
+                    return;
+                }
+                
+                try {
+                    await pc.addIceCandidate({
+                        candidate: candStr,
+                        sdpMid: c.sdpMid,
+                        sdpMLineIndex: c.sdpMLineIndex
+                    });
+                    log('🧩 Added remote ICE candidate', 'info');
+                } catch (e) {
+                    log(`❌ Failed to add ICE candidate: ${e}`, 'error');
+                }
+            }
+        }
+        
+        // ============================================================
+        // Check if connection is direct P2P or relay
+        // ============================================================
+        
+        async function checkConnectionType() {
+            try {
+                const stats = await pc.getStats();
+                stats.forEach(report => {
+                    if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                        const connectionType = report.localCandidateId?.includes('relay') || 
+                                             report.remoteCandidateId?.includes('relay')
+                                             ? 'TURN Relay' : 'Direct P2P';
+                        
+                        document.getElementById('connectionType').textContent = connectionType;
+                        
+                        if (connectionType === 'Direct P2P') {
+                            log('🎉 Confirmed: Direct P2P connection (no relay)', 'success');
+                        } else {
+                            log('⚠️ Using TURN relay (not pure P2P)', 'warn');
+                        }
+                    }
+                });
+            } catch (e) {
+                log(`❌ Error checking connection type: ${e}`, 'error');
+            }
+        }
+        
+        // ============================================================
+        // UI helper functions
+        // ============================================================
+        
+        function updateStatus(state, text) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${state}`;
+            statusEl.textContent = text;
+        }
+        
+        function log(message, level = 'info') {
+            const logsDiv = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${level}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            
+            logsDiv.appendChild(entry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+            
+            // Keep only last 100 logs
+            while (logsDiv.children.length > 100) {
+                logsDiv.removeChild(logsDiv.firstChild);
+            }
+        }
+    </script>
 </body>
 </html>

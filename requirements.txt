@@ -6,3 +6,5 @@ python-multipart==0.0.6
 python-socketio[client]==5.14.3
 aiortc
 websockets==12.0
+python-dotenv==1.0.0
+aiofiles==23.2.1
