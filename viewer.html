@@ -25,23 +25,9 @@
   const SIGNALING_WSS = "wss://camera-relay.onrender.com/ws/viewer1";
   const CAMERA_ID = "camera1";
 
-  // TURN details
-  // Use all possible forms your provider supports -- test each.
-  const TURN_USER = "000000002078730066";
-  const TURN_PASS = "dEwJy42Qu8kox+L9Bp1tgkBa0iw=";
-  const TURN_HOST = "relay1.expressturn.com";
-
+  // STUN-only configuration: prefer direct peer-to-peer connectivity.
   const ICE_SERVERS = [
-    { urls: "stun:stun.l.google.com:19302" },
-    // UDP
-    { urls: `turn:${TURN_HOST}:3480?transport=udp`, username: TURN_USER, credential: TURN_PASS },
-    // TCP
-    { urls: `turn:${TURN_HOST}:3480?transport=tcp`, username: TURN_USER, credential: TURN_PASS },
-    // Common alternative ports (try these if above fails)
-    { urls: `turn:${TURN_HOST}:3478?transport=tcp`, username: TURN_USER, credential: TURN_PASS },
-    // If provider supports TLS/secure TURN (turns:) on 5349 or 443
-    { urls: `turns:${TURN_HOST}:5349`, username: TURN_USER, credential: TURN_PASS },
-    { urls: `turns:${TURN_HOST}:443`, username: TURN_USER, credential: TURN_PASS }
+    { urls: "stun:stun.l.google.com:19302" }
   ];
   // ----------------------------
 

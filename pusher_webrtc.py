@@ -18,19 +18,16 @@ RTSP_URL = "rtsp://192.168.31.78:5543/live/channel0"
 VIEWER_ID = "viewer1"
 
 # TURN config
-TURN_HOST = "relay1.expressturn.com"
-TURN_USER = "000000002078730066"
-TURN_PASS = "dEwJy42Qu8kox+L9Bp1tgkBa0iw="
+# TURN_HOST = "relay1.expressturn.com"
+# TURN_USER = "000000002078730066"
+# TURN_PASS = "dEwJy42Qu8kox+L9Bp1tgkBa0iw="
 
-# ICE servers: STUN + several TURN forms (udp/tcp/turns)
-# ICE_SERVERS configure fallback options so WebRTC can connect through NATs/firewalls
+# ICE servers: STUN-only configuration for direct P2P (no TURN)
+# Note: STUN-only will try to discover host and server-reflexive (srflx) candidates.
+# If both peers are behind symmetric NATs or very restrictive firewalls, a direct
+# P2P connection may fail without TURN. See README/notes below for testing.
 ICE_SERVERS = [
-    RTCIceServer(urls="stun:stun.l.google.com:19302"), #help to discover the public IP address of the client
-    RTCIceServer(urls=f"turn:{TURN_HOST}:3480?transport=udp", username=TURN_USER, credential=TURN_PASS), #help to bypass NATs and firewalls
-    RTCIceServer(urls=f"turn:{TURN_HOST}:3480?transport=tcp", username=TURN_USER, credential=TURN_PASS), #help to bypass NATs and firewalls
-    RTCIceServer(urls=f"turn:{TURN_HOST}:3478?transport=tcp", username=TURN_USER, credential=TURN_PASS), #help to bypass NATs and firewalls
-    RTCIceServer(urls=f"turns:{TURN_HOST}:5349", username=TURN_USER, credential=TURN_PASS), #help to bypass NATs and firewalls
-    RTCIceServer(urls=f"turns:{TURN_HOST}:443", username=TURN_USER, credential=TURN_PASS), #help to bypass NATs and firewalls
+    RTCIceServer(urls="stun:stun.l.google.com:19302"),
 ]
 
 async def run():
@@ -71,6 +68,13 @@ async def run():
                 if candidate is None:
                     print("[pusher] local ICE gathering finished")
                     return
+                # Debug: print the local ICE candidate SDP for troubleshooting
+                try:
+                    print("[pusher] local ICE candidate ->", candidate.to_sdp(), "sdpMid:", candidate.sdpMid, "mLineIndex:", candidate.sdpMLineIndex)
+                except Exception:
+                    # Defensive: some candidate objects may be partial
+                    print("[pusher] local ICE candidate (partial):", candidate)
+
                 msg = {"type":"ice", "from": CAM_NAME, "to": VIEWER_ID, "candidate": {
                     "candidate": candidate.to_sdp(), "sdpMid": candidate.sdpMid, "sdpMLineIndex": candidate.sdpMLineIndex
                 }}
@@ -83,6 +87,11 @@ async def run():
             await pc.setLocalDescription(offer)
             await ws.send(json.dumps({"type":"offer","from":CAM_NAME,"to":VIEWER_ID,"sdp":pc.localDescription.sdp}))
             print("[pusher] sent offer")
+            # Debug: show local SDP size to help verify offer generation
+            try:
+                print("[pusher] local SDP length:", len(pc.localDescription.sdp))
+            except Exception:
+                pass
 
             # receive messages
             # Process every message coming back from the signaling service
@@ -95,6 +104,11 @@ async def run():
                 typ = obj.get("type")
                 if typ == "answer":
                     print("[pusher] received answer")
+                    # Debug: print basic info about answer SDP
+                    try:
+                        print("[pusher] answer SDP length:", len(obj.get("sdp", "")))
+                    except Exception:
+                        pass
                     await pc.setRemoteDescription(RTCSessionDescription(sdp=obj["sdp"], type="answer"))
                 elif typ == "ice":
                     c = obj.get("candidate") or {}
@@ -104,6 +118,8 @@ async def run():
                         print("[pusher] remote ICE completed")
                         continue
                     try:
+                        # Debug: log the received remote ICE candidate
+                        print("[pusher] received remote ICE candidate ->", cand_str, "sdpMid:", c.get("sdpMid"), "mLineIndex:", c.get("sdpMLineIndex"))
                         # Convert serialized ICE candidate data back into aiortc structure
                         cand = candidate_from_sdp(cand_str)
                         cand.sdpMid = c.get("sdpMid")
