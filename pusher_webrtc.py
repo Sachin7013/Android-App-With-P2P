@@ -23,16 +23,18 @@ TURN_USER = "000000002078730066"
 TURN_PASS = "dEwJy42Qu8kox+L9Bp1tgkBa0iw="
 
 # ICE servers: STUN + several TURN forms (udp/tcp/turns)
+# ICE_SERVERS configure fallback options so WebRTC can connect through NATs/firewalls
 ICE_SERVERS = [
-    RTCIceServer(urls="stun:stun.l.google.com:19302"),
-    RTCIceServer(urls=f"turn:{TURN_HOST}:3480?transport=udp", username=TURN_USER, credential=TURN_PASS),
-    RTCIceServer(urls=f"turn:{TURN_HOST}:3480?transport=tcp", username=TURN_USER, credential=TURN_PASS),
-    RTCIceServer(urls=f"turn:{TURN_HOST}:3478?transport=tcp", username=TURN_USER, credential=TURN_PASS),
-    RTCIceServer(urls=f"turns:{TURN_HOST}:5349", username=TURN_USER, credential=TURN_PASS),
-    RTCIceServer(urls=f"turns:{TURN_HOST}:443", username=TURN_USER, credential=TURN_PASS),
+    RTCIceServer(urls="stun:stun.l.google.com:19302"), #help to discover the public IP address of the client
+    RTCIceServer(urls=f"turn:{TURN_HOST}:3480?transport=udp", username=TURN_USER, credential=TURN_PASS), #help to bypass NATs and firewalls
+    RTCIceServer(urls=f"turn:{TURN_HOST}:3480?transport=tcp", username=TURN_USER, credential=TURN_PASS), #help to bypass NATs and firewalls
+    RTCIceServer(urls=f"turn:{TURN_HOST}:3478?transport=tcp", username=TURN_USER, credential=TURN_PASS), #help to bypass NATs and firewalls
+    RTCIceServer(urls=f"turns:{TURN_HOST}:5349", username=TURN_USER, credential=TURN_PASS), #help to bypass NATs and firewalls
+    RTCIceServer(urls=f"turns:{TURN_HOST}:443", username=TURN_USER, credential=TURN_PASS), #help to bypass NATs and firewalls
 ]
 
 async def run():
+    # Establish the peer connection used to publish the RTSP stream
     pc = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ICE_SERVERS))
     print("[pusher] created peer connection")
 
@@ -49,6 +51,7 @@ async def run():
         print("[pusher] ICE gathering state ->", pc.iceGatheringState)
 
     # Read RTSP
+    # Pull frames from the camera's RTSP feed and expose as a WebRTC track
     player = MediaPlayer(RTSP_URL, format="rtsp", options={"rtsp_transport": "tcp", "stimeout": "5000000"})
     if player.video:
         pc.addTrack(player.video)
@@ -75,12 +78,14 @@ async def run():
                 print("[pusher] sent local ICE candidate (to signaling)")
 
             # offer
+            # Prepare the SDP offer so the viewer can subscribe to our media
             offer = await pc.createOffer()
             await pc.setLocalDescription(offer)
             await ws.send(json.dumps({"type":"offer","from":CAM_NAME,"to":VIEWER_ID,"sdp":pc.localDescription.sdp}))
             print("[pusher] sent offer")
 
             # receive messages
+            # Process every message coming back from the signaling service
             async for raw in ws:
                 try:
                     obj = json.loads(raw)
@@ -99,6 +104,7 @@ async def run():
                         print("[pusher] remote ICE completed")
                         continue
                     try:
+                        # Convert serialized ICE candidate data back into aiortc structure
                         cand = candidate_from_sdp(cand_str)
                         cand.sdpMid = c.get("sdpMid")
                         cand.sdpMLineIndex = c.get("sdpMLineIndex")
