@@ -1,435 +1,462 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STUN-Only P2P Viewer</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        
-        .container {
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
-            max-width: 1000px;
-            width: 100%;
-        }
-        
-        .header {
-            background: #333;
-            color: white;
-            padding: 20px;
-            text-align: center;
-        }
-        
-        .header h1 {
-            font-size: 24px;
-            margin-bottom: 10px;
-        }
-        
-        .status {
-            display: inline-block;
-            padding: 8px 20px;
-            border-radius: 20px;
-            font-size: 14px;
-            font-weight: 600;
-            margin-top: 10px;
-        }
-        
-        .status.disconnected {
-            background: #ff4444;
-            color: white;
-        }
-        
-        .status.connecting {
-            background: #ffaa00;
-            color: white;
-        }
-        
-        .status.connected {
-            background: #00cc66;
-            color: white;
-        }
-        
-        .video-container {
-            position: relative;
-            background: #000;
-            width: 100%;
-            height: 0;
-            padding-bottom: 56.25%; /* 16:9 aspect ratio */
-        }
-        
-        video {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }
-        
-        .info {
-            padding: 20px;
-            background: #f5f5f5;
-        }
-        
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 0;
-            border-bottom: 1px solid #ddd;
-            font-size: 14px;
-        }
-        
-        .info-label {
-            color: #666;
-            font-weight: 500;
-        }
-        
-        .info-value {
-            color: #333;
-            font-weight: 600;
-        }
-        
-        .logs {
-            padding: 15px;
-            background: #1e1e1e;
-            color: #00ff00;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            max-height: 200px;
-            overflow-y: auto;
-            line-height: 1.6;
-        }
-        
-        .log-entry {
-            margin-bottom: 3px;
-        }
-        
-        .log-error { color: #ff6b6b; }
-        .log-success { color: #51cf66; }
-        .log-warn { color: #ffd43b; }
-        .log-info { color: #74c0fc; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebRTC Camera Viewer - AWS TURN</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      background: #f7f9fc;
+      border-radius: 8px;
+      margin-top: 15px;
+    }
+
+    .status-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #ffc107;
+      animation: pulse 2s infinite;
+    }
+
+    .status-indicator.connected {
+      background: #4caf50;
+      animation: none;
+    }
+
+    .status-indicator.failed {
+      background: #f44336;
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .status-text {
+      font-weight: 600;
+      color: #333;
+      font-size: 14px;
+    }
+
+    .video-container {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+    }
+
+    video {
+      width: 100%;
+      max-height: 70vh;
+      background: #000;
+      border-radius: 8px;
+      display: block;
+    }
+
+    .log-container {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .log-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .clear-btn {
+      padding: 8px 16px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.3s;
+    }
+
+    .clear-btn:hover {
+      background: #5568d3;
+    }
+
+    #log {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 8px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .log-entry {
+      margin-bottom: 4px;
+    }
+
+    .log-success { color: #4caf50; }
+    .log-error { color: #f44336; }
+    .log-warning { color: #ffc107; }
+    .log-info { color: #2196f3; }
+
+    .turn-info {
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      padding: 12px;
+      margin-top: 15px;
+      border-radius: 4px;
+    }
+
+    .turn-info strong {
+      color: #1976d2;
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>📹 STUN-Only P2P Camera Viewer</h1>
-            <div class="status disconnected" id="status">Disconnected</div>
-        </div>
-        
-        <div class="video-container">
-            <video id="remoteVideo" autoplay playsinline controls></video>
-        </div>
-        
-        <div class="info">
-            <div class="info-row">
-                <span class="info-label">Viewer ID:</span>
-                <span class="info-value" id="viewerId">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Camera ID:</span>
-                <span class="info-value" id="cameraId">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">ICE Connection:</span>
-                <span class="info-value" id="iceState">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Connection Type:</span>
-                <span class="info-value" id="connectionType">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">ICE Candidates:</span>
-                <span class="info-value" id="candidateCount">0</span>
-            </div>
-        </div>
-        
-        <div class="logs" id="logs"></div>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>🎥 Camera Viewer - AWS TURN Server</h1>
+      
+      <div class="status-bar">
+        <div class="status-indicator" id="statusIndicator"></div>
+        <div class="status-text" id="statusText">Initializing...</div>
+      </div>
+
+      <div class="turn-info">
+        <strong>🔄 Using YOUR AWS TURN Server:</strong> 52.64.197.245:3478
+      </div>
     </div>
 
-    <script>
-        // ============================================================
-        // CONFIGURATION
-        // ============================================================
-        
-        // Match these with pusher_stun.py
-        const VIEWER_ID = 'viewer1';
-        const CAM_NAME = 'camera1';
-        
-        // Signaling server URL
-        // Option 1: Cloud server (for remote access)
-        const SIGNALING_WS = 'wss://camera-relay.onrender.com/ws/';
-        
-        // Option 2: Local server (same network only)
-        // const SIGNALING_WS = 'ws://localhost:8000/ws/';
-        
-        // ============================================================
-        // STUN-ONLY Configuration (Method 3: Aggressive)
-        // ============================================================
-        
-        const ICE_CONFIG = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' }
-            ],
-            iceCandidatePoolSize: 10,  // Aggressive gathering
-            iceTransportPolicy: 'all'  // Try all candidates
+    <!-- Video Player -->
+    <div class="video-container">
+      <video id="remoteVideo" autoplay playsinline muted controls></video>
+    </div>
+
+    <!-- Connection Log -->
+    <div class="log-container">
+      <div class="log-header">
+        <div class="log-title">📋 Connection Log</div>
+        <button class="clear-btn" onclick="clearLog()">Clear Log</button>
+      </div>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    // ========================================
+    // Configuration
+    // ========================================
+
+    const CONFIG = {
+      // Signaling server (your Render server)
+      signaling: "wss://camera-relay.onrender.com/ws/viewer1",
+      cameraId: "camera1",
+      
+      // YOUR AWS TURN Server
+      turn: {
+        ip: "52.64.197.245",
+        port: "3478",
+        username: "webrtcuser",
+        password: "changeThisPassword2025!"
+      }
+    };
+
+    // ========================================
+    // ICE Servers Configuration
+    // ========================================
+
+    const ICE_SERVERS = [
+      // Google STUN server
+      { urls: "stun:stun.l.google.com:19302" },
+      
+      // YOUR AWS TURN server - UDP (preferred for video)
+      {
+        urls: `turn:${CONFIG.turn.ip}:${CONFIG.turn.port}?transport=udp`,
+        username: CONFIG.turn.username,
+        credential: CONFIG.turn.password
+      },
+      
+      // YOUR AWS TURN server - TCP (fallback)
+      {
+        urls: `turn:${CONFIG.turn.ip}:${CONFIG.turn.port}?transport=tcp`,
+        username: CONFIG.turn.username,
+        credential: CONFIG.turn.password
+      }
+    ];
+
+    // ========================================
+    // UI Elements
+    // ========================================
+
+    const logElement = document.getElementById('log');
+    const statusText = document.getElementById('statusText');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const remoteVideo = document.getElementById('remoteVideo');
+
+    // ========================================
+    // Logging Functions
+    // ========================================
+
+    function log(message, type = 'info') {
+      const timestamp = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = `log-entry log-${type}`;
+      entry.textContent = `[${timestamp}] ${message}`;
+      logElement.appendChild(entry);
+      logElement.scrollTop = logElement.scrollHeight;
+      console.log(`[${type}]`, message);
+    }
+
+    function clearLog() {
+      logElement.innerHTML = '';
+      log('Log cleared', 'info');
+    }
+
+    function setStatus(text, state = 'connecting') {
+      statusText.textContent = text;
+      statusIndicator.className = `status-indicator ${state}`;
+      log(`Status: ${text}`, state === 'connected' ? 'success' : state === 'failed' ? 'error' : 'info');
+    }
+
+    // ========================================
+    // WebRTC Peer Connection Setup
+    // ========================================
+
+    log('🚀 Initializing WebRTC viewer...', 'info');
+    log(`🔄 TURN Server: ${CONFIG.turn.ip}:${CONFIG.turn.port}`, 'info');
+
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+    // Video element configuration
+    remoteVideo.muted = true;
+    remoteVideo.playsInline = true;
+
+    // ========================================
+    // ICE Candidate Handling
+    // ========================================
+
+    pc.onicecandidate = (event) => {
+      if (!event.candidate) {
+        log('✅ Local ICE gathering completed', 'success');
+        return;
+      }
+
+      const candidate = event.candidate.candidate;
+      log(`ICE candidate: ${candidate.substring(0, 50)}...`, 'info');
+
+      // Check if using TURN relay
+      if (candidate.includes('relay')) {
+        log(`🔄 Using TURN relay from AWS: ${CONFIG.turn.ip}`, 'success');
+      }
+
+      // Send candidate to signaling server
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = {
+          type: 'ice',
+          from: 'viewer1',
+          to: CONFIG.cameraId,
+          candidate: {
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMLineIndex: event.candidate.sdpMLineIndex
+          }
         };
+        ws.send(JSON.stringify(message));
+      }
+    };
+
+    // ========================================
+    // Connection State Monitoring
+    // ========================================
+
+    pc.onicegatheringstatechange = () => {
+      log(`ICE gathering state: ${pc.iceGatheringState}`, 'info');
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      log(`ICE connection state: ${state}`, 'info');
+
+      if (state === 'connected') {
+        setStatus('✅ Connected - Streaming', 'connected');
+      } else if (state === 'disconnected') {
+        setStatus('⚠️ Disconnected', 'warning');
+      } else if (state === 'failed') {
+        setStatus('❌ Connection Failed', 'failed');
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      log(`Connection state: ${state}`, 'info');
+
+      if (state === 'connected') {
+        log('✅ Peer connection established!', 'success');
+      } else if (state === 'failed') {
+        log('❌ Peer connection failed!', 'error');
+      }
+    };
+
+    // ========================================
+    // Track Handling (Receive Video)
+    // ========================================
+
+    pc.ontrack = (event) => {
+      log('✅ Received video track from camera', 'success');
+      
+      const [stream] = event.streams;
+      if (stream) {
+        remoteVideo.srcObject = stream;
+      } else {
+        const mediaStream = remoteVideo.srcObject instanceof MediaStream 
+          ? remoteVideo.srcObject 
+          : new MediaStream();
+        mediaStream.addTrack(event.track);
+        remoteVideo.srcObject = mediaStream;
+      }
+
+      remoteVideo.play()
+        .then(() => log('▶️ Video playback started', 'success'))
+        .catch(err => log(`❌ Video playback error: ${err.message}`, 'error'));
+    };
+
+    // ========================================
+    // WebSocket Signaling
+    // ========================================
+
+    let ws;
+
+    try {
+      setStatus('Connecting to signaling server...', 'connecting');
+      ws = new WebSocket(CONFIG.signaling);
+    } catch (err) {
+      log(`❌ WebSocket error: ${err.message}`, 'error');
+      setStatus('❌ Connection Failed', 'failed');
+      throw err;
+    }
+
+    ws.onopen = () => {
+      log('✅ Signaling server connected', 'success');
+      setStatus('Waiting for camera offer...', 'connecting');
+    };
+
+    ws.onclose = () => {
+      log('⚠️ Signaling server disconnected', 'warning');
+      setStatus('❌ Disconnected', 'failed');
+    };
+
+    ws.onerror = (error) => {
+      log(`❌ WebSocket error: ${error}`, 'error');
+      setStatus('❌ Connection Error', 'failed');
+    };
+
+    ws.onmessage = async (event) => {
+      try {
+        const message = JSON.parse(event.data);
         
-        // ============================================================
-        // Global variables
-        // ============================================================
-        
-        let pc;
-        let ws;
-        let candidateCount = 0;
-        
-        // Update UI
-        document.getElementById('viewerId').textContent = VIEWER_ID;
-        document.getElementById('cameraId').textContent = CAM_NAME;
-        
-        // ============================================================
-        // Initialize connection on page load
-        // ============================================================
-        
-        window.onload = () => {
-            log('🚀 Initializing STUN-only P2P connection...', 'info');
-            connectSignaling();
-        };
-        
-        // ============================================================
-        // Connect to signaling server
-        // ============================================================
-        
-        function connectSignaling() {
-            const wsUrl = SIGNALING_WS + VIEWER_ID;
-            log(`🔌 Connecting to signaling: ${wsUrl}`, 'info');
-            
-            ws = new WebSocket(wsUrl);
-            
-            ws.onopen = () => {
-                log('✅ Connected to signaling server', 'success');
-                updateStatus('connecting', 'Waiting for camera...');
-                createPeerConnection();
-            };
-            
-            ws.onmessage = async (event) => {
-                try {
-                    const obj = JSON.parse(event.data);
-                    await handleSignalMessage(obj);
-                } catch (e) {
-                    log(`❌ Error parsing message: ${e}`, 'error');
-                }
-            };
-            
-            ws.onerror = (error) => {
-                log(`❌ WebSocket error: ${error}`, 'error');
-                updateStatus('disconnected', 'Connection Error');
-            };
-            
-            ws.onclose = () => {
-                log('🔌 Signaling disconnected', 'warn');
-                updateStatus('disconnected', 'Disconnected');
-            };
+        // Handle offer from camera
+        if (message.type === 'offer') {
+          log('📨 Received offer from camera', 'info');
+          setStatus('Processing offer...', 'connecting');
+
+          await pc.setRemoteDescription({
+            type: 'offer',
+            sdp: message.sdp
+          });
+
+          log('Creating answer...', 'info');
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+
+          ws.send(JSON.stringify({
+            type: 'answer',
+            from: 'viewer1',
+            to: message.from,
+            sdp: pc.localDescription.sdp
+          }));
+
+          log('✅ Answer sent to camera', 'success');
+          setStatus('Connecting to camera...', 'connecting');
         }
         
-        // ============================================================
-        // Create RTCPeerConnection
-        // ============================================================
-        
-        function createPeerConnection() {
-            log('🔗 Creating peer connection with STUN-only...', 'info');
-            
-            pc = new RTCPeerConnection(ICE_CONFIG);
-            
-            // Handle incoming video stream
-            pc.ontrack = (event) => {
-                log(`🎬 Received ${event.track.kind} track`, 'success');
-                const video = document.getElementById('remoteVideo');
-                
-                if (!video.srcObject) {
-                    video.srcObject = event.streams[0];
-                    log('✅ Video stream connected', 'success');
-                }
-            };
-            
-            // Handle ICE candidates
-            pc.onicecandidate = (event) => {
-                if (event.candidate) {
-                    candidateCount++;
-                    document.getElementById('candidateCount').textContent = candidateCount;
-                    log(`🧩 Found ICE candidate #${candidateCount}`, 'info');
-                    
-                    // Send to camera via signaling
-                    ws.send(JSON.stringify({
-                        type: 'ice',
-                        from: VIEWER_ID,
-                        to: CAM_NAME,
-                        candidate: {
-                            candidate: event.candidate.candidate,
-                            sdpMid: event.candidate.sdpMid,
-                            sdpMLineIndex: event.candidate.sdpMLineIndex
-                        }
-                    }));
-                } else {
-                    log('✅ All ICE candidates gathered', 'success');
-                }
-            };
-            
-            // Monitor ICE connection state
-            pc.oniceconnectionstatechange = () => {
-                const state = pc.iceConnectionState;
-                document.getElementById('iceState').textContent = state;
-                log(`🔄 ICE State: ${state}`, 'info');
-                
-                if (state === 'connected' || state === 'completed') {
-                    updateStatus('connected', 'Direct P2P Connected ✅');
-                    log('🎉 Direct P2P connection established!', 'success');
-                    checkConnectionType();
-                } else if (state === 'failed') {
-                    updateStatus('disconnected', 'Connection Failed ❌');
-                    log('❌ P2P connection failed', 'error');
-                    log('💡 Possible reasons: Symmetric NAT, firewall blocking UDP', 'warn');
-                } else if (state === 'disconnected') {
-                    updateStatus('connecting', 'Reconnecting...');
-                    log('⚠️ Connection lost, attempting reconnect', 'warn');
-                }
-            };
-            
-            // Monitor overall connection state
-            pc.onconnectionstatechange = () => {
-                log(`🔄 Connection State: ${pc.connectionState}`, 'info');
-            };
-            
-            log('✅ Peer connection created', 'success');
+        // Handle ICE candidate from camera
+        else if (message.type === 'ice') {
+          const candidateData = message.candidate;
+          
+          if (candidateData && candidateData.candidate) {
+            await pc.addIceCandidate({
+              candidate: candidateData.candidate,
+              sdpMid: candidateData.sdpMid,
+              sdpMLineIndex: candidateData.sdpMLineIndex
+            });
+            log('Added remote ICE candidate', 'info');
+          }
         }
-        
-        // ============================================================
-        // Handle signaling messages
-        // ============================================================
-        
-        async function handleSignalMessage(obj) {
-            const msgType = obj.type;
-            
-            if (msgType === 'offer') {
-                log('📥 Received SDP offer from camera', 'info');
-                
-                // Set remote description
-                await pc.setRemoteDescription({
-                    type: 'offer',
-                    sdp: obj.sdp
-                });
-                
-                // Create answer
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                
-                // Send answer back to camera
-                ws.send(JSON.stringify({
-                    type: 'answer',
-                    from: VIEWER_ID,
-                    to: CAM_NAME,
-                    sdp: pc.localDescription.sdp
-                }));
-                
-                log('📤 Sent SDP answer to camera', 'success');
-                updateStatus('connecting', 'Connecting...');
-                
-            } else if (msgType === 'ice') {
-                const c = obj.candidate || {};
-                const candStr = c.candidate;
-                
-                if (!candStr) {
-                    log('✅ Remote ICE gathering completed', 'success');
-                    return;
-                }
-                
-                try {
-                    await pc.addIceCandidate({
-                        candidate: candStr,
-                        sdpMid: c.sdpMid,
-                        sdpMLineIndex: c.sdpMLineIndex
-                    });
-                    log('🧩 Added remote ICE candidate', 'info');
-                } catch (e) {
-                    log(`❌ Failed to add ICE candidate: ${e}`, 'error');
-                }
-            }
-        }
-        
-        // ============================================================
-        // Check if connection is direct P2P or relay
-        // ============================================================
-        
-        async function checkConnectionType() {
-            try {
-                const stats = await pc.getStats();
-                stats.forEach(report => {
-                    if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-                        const connectionType = report.localCandidateId?.includes('relay') || 
-                                             report.remoteCandidateId?.includes('relay')
-                                             ? 'TURN Relay' : 'Direct P2P';
-                        
-                        document.getElementById('connectionType').textContent = connectionType;
-                        
-                        if (connectionType === 'Direct P2P') {
-                            log('🎉 Confirmed: Direct P2P connection (no relay)', 'success');
-                        } else {
-                            log('⚠️ Using TURN relay (not pure P2P)', 'warn');
-                        }
-                    }
-                });
-            } catch (e) {
-                log(`❌ Error checking connection type: ${e}`, 'error');
-            }
-        }
-        
-        // ============================================================
-        // UI helper functions
-        // ============================================================
-        
-        function updateStatus(state, text) {
-            const statusEl = document.getElementById('status');
-            statusEl.className = `status ${state}`;
-            statusEl.textContent = text;
-        }
-        
-        function log(message, level = 'info') {
-            const logsDiv = document.getElementById('logs');
-            const timestamp = new Date().toLocaleTimeString();
-            
-            const entry = document.createElement('div');
-            entry.className = `log-entry log-${level}`;
-            entry.textContent = `[${timestamp}] ${message}`;
-            
-            logsDiv.appendChild(entry);
-            logsDiv.scrollTop = logsDiv.scrollHeight;
-            
-            // Keep only last 100 logs
-            while (logsDiv.children.length > 100) {
-                logsDiv.removeChild(logsDiv.firstChild);
-            }
-        }
-    </script>
+      } catch (err) {
+        log(`❌ Message handling error: ${err.message}`, 'error');
+      }
+    };
+
+    // ========================================
+    // Startup Message
+    // ========================================
+
+    log('='*50, 'info');
+    log('Camera Viewer Initialized', 'info');
+    log(`Using YOUR AWS TURN Server: ${CONFIG.turn.ip}:${CONFIG.turn.port}`, 'success');
+    log('='*50, 'info');
+  </script>
 </body>
 </html>
