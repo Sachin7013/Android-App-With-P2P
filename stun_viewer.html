@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebRTC Camera Viewer - STUN Only</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      background: #f7f9fc;
+      border-radius: 8px;
+      margin-top: 15px;
+    }
+
+    .status-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #ffc107;
+      animation: pulse 2s infinite;
+    }
+
+    .status-indicator.connected {
+      background: #4caf50;
+      animation: none;
+    }
+
+    .status-indicator.failed {
+      background: #f44336;
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .status-text {
+      font-weight: 600;
+      color: #333;
+      font-size: 14px;
+    }
+
+    .video-container {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+    }
+
+    video {
+      width: 100%;
+      max-height: 70vh;
+      background: #000;
+      border-radius: 8px;
+      display: block;
+    }
+
+    .log-container {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .log-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .clear-btn {
+      padding: 8px 16px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.3s;
+    }
+
+    .clear-btn:hover {
+      background: #5568d3;
+    }
+
+    #log {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 8px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .log-entry {
+      margin-bottom: 4px;
+    }
+
+    .log-success { color: #4caf50; }
+    .log-error { color: #f44336; }
+    .log-warning { color: #ffc107; }
+    .log-info { color: #2196f3; }
+
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>🎥 Camera Viewer - STUN Only</h1>
+      
+      <div class="status-bar">
+        <div class="status-indicator" id="statusIndicator"></div>
+        <div class="status-text" id="statusText">Initializing...</div>
+      </div>
+
+    </div>
+
+    <!-- Video Player -->
+    <div class="video-container">
+      <video id="remoteVideo" autoplay playsinline muted controls></video>
+    </div>
+
+    <!-- Connection Log -->
+    <div class="log-container">
+      <div class="log-header">
+        <div class="log-title">📋 Connection Log</div>
+        <button class="clear-btn" onclick="clearLog()">Clear Log</button>
+      </div>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    // ========================================
+    // Configuration
+    // ========================================
+
+    const CONFIG = {
+      // Signaling server (your Render server)
+      signaling: "wss://camera-relay.onrender.com/ws/viewer1",
+      cameraId: "camera1"
+    };
+
+    // ========================================
+    // ICE Servers Configuration
+    // ========================================
+
+    const ICE_SERVERS = [
+      // Google STUN servers
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      
+      // Additional public STUN options
+      { urls: "stun:stun.cloudflare.com:3478" },
+      { urls: "stun:stun.relay.metered.ca:80" },
+      { urls: "stun:stun.services.mozilla.com:3478" },
+      { urls: "stun:stun.nextcloud.com:443" },
+      { urls: "stun:stun.sipgate.net:3478" },
+      { urls: "stun:stun.voip.blackberry.com:3478" }
+    ];
+
+    // ========================================
+    // UI Elements
+    // ========================================
+
+    const logElement = document.getElementById('log');
+    const statusText = document.getElementById('statusText');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const remoteVideo = document.getElementById('remoteVideo');
+
+    // ========================================
+    // Logging Functions
+    // ========================================
+
+    function log(message, type = 'info') {
+      const timestamp = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = `log-entry log-${type}`;
+      entry.textContent = `[${timestamp}] ${message}`;
+      logElement.appendChild(entry);
+      logElement.scrollTop = logElement.scrollHeight;
+      console.log(`[${type}]`, message);
+    }
+
+    function clearLog() {
+      logElement.innerHTML = '';
+      log('Log cleared', 'info');
+    }
+
+    function setStatus(text, state = 'connecting') {
+      statusText.textContent = text;
+      statusIndicator.className = `status-indicator ${state}`;
+      log(`Status: ${text}`, state === 'connected' ? 'success' : state === 'failed' ? 'error' : 'info');
+    }
+
+    // ========================================
+    // WebRTC Peer Connection Setup
+    // ========================================
+
+    log('🚀 Initializing WebRTC viewer...', 'info');
+    log('🌐 Using public STUN servers (no TURN)', 'info');
+
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+    // Video element configuration
+    remoteVideo.muted = true;
+    remoteVideo.playsInline = true;
+
+    // ========================================
+    // ICE Candidate Handling
+    // ========================================
+
+    pc.onicecandidate = (event) => {
+      if (!event.candidate) {
+        log('✅ Local ICE gathering completed', 'success');
+        return;
+      }
+
+      const candidate = event.candidate.candidate;
+      log(`ICE candidate: ${candidate.substring(0, 50)}...`, 'info');
+
+      // Send candidate to signaling server
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = {
+          type: 'ice',
+          from: 'viewer1',
+          to: CONFIG.cameraId,
+          candidate: {
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMLineIndex: event.candidate.sdpMLineIndex
+          }
+        };
+        ws.send(JSON.stringify(message));
+      }
+    };
+
+    // ========================================
+    // Connection State Monitoring
+    // ========================================
+
+    pc.onicegatheringstatechange = () => {
+      log(`ICE gathering state: ${pc.iceGatheringState}`, 'info');
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      log(`ICE connection state: ${state}`, 'info');
+
+      if (state === 'connected') {
+        setStatus('✅ Connected - Streaming', 'connected');
+      } else if (state === 'disconnected') {
+        setStatus('⚠️ Disconnected', 'warning');
+      } else if (state === 'failed') {
+        setStatus('❌ Connection Failed', 'failed');
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      log(`Connection state: ${state}`, 'info');
+
+      if (state === 'connected') {
+        log('✅ Peer connection established!', 'success');
+      } else if (state === 'failed') {
+        log('❌ Peer connection failed!', 'error');
+      }
+    };
+
+    // ========================================
+    // Track Handling (Receive Video)
+    // ========================================
+
+    pc.ontrack = (event) => {
+      log('✅ Received video track from camera', 'success');
+      
+      const [stream] = event.streams;
+      if (stream) {
+        remoteVideo.srcObject = stream;
+      } else {
+        const mediaStream = remoteVideo.srcObject instanceof MediaStream 
+          ? remoteVideo.srcObject 
+          : new MediaStream();
+        mediaStream.addTrack(event.track);
+        remoteVideo.srcObject = mediaStream;
+      }
+
+      remoteVideo.play()
+        .then(() => log('▶️ Video playback started', 'success'))
+        .catch(err => log(`❌ Video playback error: ${err.message}`, 'error'));
+    };
+
+    // ========================================
+    // WebSocket Signaling
+    // ========================================
+
+    let ws;
+
+    try {
+      setStatus('Connecting to signaling server...', 'connecting');
+      ws = new WebSocket(CONFIG.signaling);
+    } catch (err) {
+      log(`❌ WebSocket error: ${err.message}`, 'error');
+      setStatus('❌ Connection Failed', 'failed');
+      throw err;
+    }
+
+    ws.onopen = () => {
+      log('✅ Signaling server connected', 'success');
+      setStatus('Waiting for camera offer...', 'connecting');
+    };
+
+    ws.onclose = () => {
+      log('⚠️ Signaling server disconnected', 'warning');
+      setStatus('❌ Disconnected', 'failed');
+    };
+
+    ws.onerror = (error) => {
+      log(`❌ WebSocket error: ${error}`, 'error');
+      setStatus('❌ Connection Error', 'failed');
+    };
+
+    ws.onmessage = async (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        
+        // Handle offer from camera
+        if (message.type === 'offer') {
+          log('📨 Received offer from camera', 'info');
+          setStatus('Processing offer...', 'connecting');
+
+          await pc.setRemoteDescription({
+            type: 'offer',
+            sdp: message.sdp
+          });
+
+          log('Creating answer...', 'info');
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+
+          ws.send(JSON.stringify({
+            type: 'answer',
+            from: 'viewer1',
+            to: message.from,
+            sdp: pc.localDescription.sdp
+          }));
+
+          log('✅ Answer sent to camera', 'success');
+          setStatus('Connecting to camera...', 'connecting');
+        }
+        
+        // Handle ICE candidate from camera
+        else if (message.type === 'ice') {
+          const candidateData = message.candidate;
+          
+          if (candidateData && candidateData.candidate) {
+            await pc.addIceCandidate({
+              candidate: candidateData.candidate,
+              sdpMid: candidateData.sdpMid,
+              sdpMLineIndex: candidateData.sdpMLineIndex
+            });
+            log('Added remote ICE candidate', 'info');
+          }
+        }
+      } catch (err) {
+        log(`❌ Message handling error: ${err.message}`, 'error');
+      }
+    };
+
+    // ========================================
+    // Startup Message
+    // ========================================
+
+    log('='*50, 'info');
+    log('Camera Viewer Initialized', 'info');
+    log('Operating in STUN-only mode', 'success');
+    log('='*50, 'info');
+  </script>
+</body>
+</html>
