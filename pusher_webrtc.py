@@ -122,7 +122,7 @@ async def run():
             }
         )
         
-        # Add video track to peer connection
+        # Add video track to peer connection so it can be sent to the remote peer
         if player.video:
             pc.addTrack(player.video)
             print("[pusher] ✅ Video track added from RTSP camera")
@@ -166,7 +166,7 @@ async def run():
                 if "relay" in candidate.to_sdp():
                     print(f"[pusher] 🔄 Using TURN relay: {AWS_TURN_IP}")
                 
-                # Send ICE candidate to signaling server
+                # Send ICE candidate to signaling server (which will forward to viewer)
                 msg = {
                     "type": "ice",
                     "from": CAM_NAME,
@@ -195,6 +195,7 @@ async def run():
                 "to": VIEWER_ID,
                 "sdp": pc.localDescription.sdp
             }
+            #sends offer to signaling server. Server will forward to VIEWER_ID if connected.
             await ws.send(json.dumps(offer_msg))
             print("[pusher] ✅ Offer sent to viewer")
 
