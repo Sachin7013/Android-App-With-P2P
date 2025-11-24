@@ -1,4 +1,3 @@
-# pusher_webrtc.py - Simple and Clean Version
 import asyncio
 import json
 import os
@@ -14,11 +13,12 @@ from aiortc.contrib.media import MediaPlayer
 from aiortc.contrib.signaling import candidate_from_sdp
 import websockets
 
+
 # ========================================
 # CONFIGURATION - Change these values
 # ========================================
 
-# Load .env values (defaults keep current behaviour if missing)
+# Load .env values
 load_dotenv()
 
 # Signaling Server (Your Render server)
@@ -26,7 +26,8 @@ SIGNALING_WS = os.getenv("SIGNALING_WS")
 
 # Camera Configuration
 CAM_NAME = os.getenv("CAM_NAME")
-RTSP_URL = os.getenv("RTSP_URL")
+RTSP_URL_1 = os.getenv("RTSP_URL_1")
+RTSP_URL_2 = os.getenv("RTSP_URL_2")
 VIEWER_ID = os.getenv("VIEWER_ID")
 
 # YOUR AWS TURN Server Configuration
@@ -35,22 +36,22 @@ AWS_TURN_PORT = os.getenv("AWS_TURN_PORT")
 AWS_TURN_USER = os.getenv("AWS_TURN_USER")
 AWS_TURN_PASS = os.getenv("AWS_TURN_PASS")
 
+
 # ========================================
 # ICE Servers Configuration
 # ========================================
-# Order matters: STUN first, then YOUR TURN server
 ICE_SERVERS = [
-    # Google's public STUN server (helps discover your public IP)
+    # Google's public STUN server
     RTCIceServer(urls="stun:stun.l.google.com:19302"),
     
-    # YOUR AWS TURN server - UDP (best for video, lowest latency)
+    # YOUR AWS TURN server - UDP (best for video)
     RTCIceServer(
         urls=f"turn:{AWS_TURN_IP}:{AWS_TURN_PORT}?transport=udp",
         username=AWS_TURN_USER,
         credential=AWS_TURN_PASS
     ),
     
-    # YOUR AWS TURN server - TCP fallback (if UDP is blocked)
+    # YOUR AWS TURN server - TCP fallback
     RTCIceServer(
         urls=f"turn:{AWS_TURN_IP}:{AWS_TURN_PORT}?transport=tcp",
         username=AWS_TURN_USER,
@@ -60,13 +61,14 @@ ICE_SERVERS = [
 
 
 async def run():
-    """Main function to run the camera pusher"""
+    """Main function to run the camera pusher with 2 cameras"""
     
     # Create peer connection with YOUR TURN configuration
     pc = RTCPeerConnection(
         configuration=RTCConfiguration(iceServers=ICE_SERVERS)
     )
     print(f"[pusher] Peer connection created with AWS TURN server: {AWS_TURN_IP}")
+
 
     # ========================================
     # Connection State Monitoring
@@ -85,6 +87,7 @@ async def run():
         elif state == "disconnected":
             print("[pusher] ⚠️  ICE disconnected")
 
+
     @pc.on("connectionstatechange")
     def on_conn_state():
         """Monitor overall connection state"""
@@ -96,6 +99,7 @@ async def run():
         elif state == "failed":
             print("[pusher] ❌ Peer connection failed")
 
+
     @pc.on("icegatheringstatechange")
     def on_gather_state():
         """Monitor ICE gathering state"""
@@ -105,33 +109,69 @@ async def run():
         if state == "complete":
             print("[pusher] ✅ ICE gathering completed")
 
+
     # ========================================
-    # Add Video Track from RTSP Camera
+    # Add Video Tracks from BOTH RTSP Cameras
     # ========================================
     
-    print(f"[pusher] Connecting to RTSP camera: {RTSP_URL}")
+    players = []  # Store both players to keep them alive
     
+    # Camera 1
+    print(f"[pusher] Connecting to RTSP Camera 1: {RTSP_URL_1}")
     try:
-        # Create media player from RTSP stream
-        player = MediaPlayer(
-            RTSP_URL,
+        player1 = MediaPlayer(
+            RTSP_URL_1,
             format="rtsp",
             options={
-                "rtsp_transport": "tcp",  # Use TCP for reliability
-                "stimeout": "5000000"     # Socket timeout (5 seconds)
+                "rtsp_transport": "tcp",
+                "stimeout": "5000000"
             }
         )
         
-        # Add video track to peer connection so it can be sent to the remote peer
-        if player.video:
-            pc.addTrack(player.video)
-            print("[pusher] ✅ Video track added from RTSP camera")
+        if player1.video:
+            # Add track with stream ID for identification
+            pc.addTrack(player1.video)
+            players.append(player1)
+            print("[pusher] ✅ Camera 1 video track added")
         else:
-            print("[pusher] ⚠️  WARNING: No video track available from camera")
+            print("[pusher] ⚠️  WARNING: No video track from Camera 1")
             
     except Exception as e:
-        print(f"[pusher] ❌ Error connecting to camera: {e}")
+        print(f"[pusher] ❌ Error connecting to Camera 1: {e}")
+
+
+    # Camera 2
+    print(f"[pusher] Connecting to RTSP Camera 2: {RTSP_URL_2}")
+    try:
+        player2 = MediaPlayer(
+            RTSP_URL_2,
+            format="rtsp",
+            options={
+                "rtsp_transport": "tcp",
+                "stimeout": "5000000"
+            }
+        )
+        
+        if player2.video:
+            # Add track with stream ID for identification
+            pc.addTrack(player2.video)
+            players.append(player2)
+            print("[pusher] ✅ Camera 2 video track added")
+        else:
+            print("[pusher] ⚠️  WARNING: No video track from Camera 2")
+            
+    except Exception as e:
+        print(f"[pusher] ❌ Error connecting to Camera 2: {e}")
+
+
+    # Check if at least one camera connected
+    if len(players) == 0:
+        print("[pusher] ❌ No cameras connected. Exiting.")
         return
+
+
+    print(f"[pusher] ✅ Total cameras connected: {len(players)}")
+
 
     # ========================================
     # Connect to Signaling Server
@@ -139,6 +179,7 @@ async def run():
     
     ws_url = SIGNALING_WS + CAM_NAME
     print(f"[pusher] Connecting to signaling server: {ws_url}")
+
 
     try:
         async with websockets.connect(
@@ -149,6 +190,7 @@ async def run():
         ) as ws:
             
             print("[pusher] ✅ Signaling server connected")
+
 
             # ========================================
             # Handle Local ICE Candidates
@@ -166,7 +208,7 @@ async def run():
                 if "relay" in candidate.to_sdp():
                     print(f"[pusher] 🔄 Using TURN relay: {AWS_TURN_IP}")
                 
-                # Send ICE candidate to signaling server (which will forward to viewer)
+                # Send ICE candidate to signaling server
                 msg = {
                     "type": "ice",
                     "from": CAM_NAME,
@@ -179,6 +221,7 @@ async def run():
                 }
                 await ws.send(json.dumps(msg))
                 print("[pusher] Sent ICE candidate to signaling server")
+
 
             # ========================================
             # Create and Send Offer
@@ -195,9 +238,9 @@ async def run():
                 "to": VIEWER_ID,
                 "sdp": pc.localDescription.sdp
             }
-            #sends offer to signaling server. Server will forward to VIEWER_ID if connected.
             await ws.send(json.dumps(offer_msg))
-            print("[pusher] ✅ Offer sent to viewer")
+            print("[pusher] ✅ Offer sent to viewer (with 2 video tracks)")
+
 
             # ========================================
             # Receive Messages from Signaling Server
@@ -210,7 +253,9 @@ async def run():
                     print(f"[pusher] ⚠️  Invalid JSON: {e}")
                     continue
 
+
                 msg_type = message.get("type")
+
 
                 # Handle answer from viewer
                 if msg_type == "answer":
@@ -223,19 +268,18 @@ async def run():
                     await pc.setRemoteDescription(answer)
                     print("[pusher] ✅ Remote description set")
 
+
                 # Handle ICE candidate from viewer
                 elif msg_type == "ice":
                     candidate_data = message.get("candidate") or {}
                     candidate_str = candidate_data.get("candidate")
                     
                     if not candidate_str:
-                        # End of candidates signal
                         await pc.addIceCandidate(None)
                         print("[pusher] ✅ Remote ICE gathering completed")
                         continue
                     
                     try:
-                        # Parse and add ICE candidate
                         candidate = candidate_from_sdp(candidate_str)
                         candidate.sdpMid = candidate_data.get("sdpMid")
                         candidate.sdpMLineIndex = candidate_data.get("sdpMLineIndex")
@@ -246,9 +290,10 @@ async def run():
                     except Exception as e:
                         print(f"[pusher] ⚠️  Failed to add remote ICE candidate: {e}")
 
-                # Unknown message type
+
                 else:
                     print(f"[pusher] ⚠️  Unknown message type: {msg_type}")
+
 
     except websockets.exceptions.WebSocketException as e:
         print(f"[pusher] ❌ WebSocket error: {e}")
@@ -262,11 +307,12 @@ async def run():
 
 if __name__ == "__main__":
     print("="*60)
-    print("Camera Pusher - Using YOUR AWS TURN Server")
+    print("Multi-Camera Pusher - Using YOUR AWS TURN Server")
     print(f"TURN Server: {AWS_TURN_IP}:{AWS_TURN_PORT}")
-    print(f"Camera: {CAM_NAME}")
+    print(f"Camera Name: {CAM_NAME}")
+    print(f"Camera 1: {RTSP_URL_1}")
+    print(f"Camera 2: {RTSP_URL_2}")
     print("="*60)
-    
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
