@@ -8,8 +8,8 @@ from fastapi.responses import HTMLResponse
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-#VIEWER_FILE = BASE_DIR / "viewer.html"
-VIEWER_FILE = BASE_DIR / "stun_viewer.html"
+VIEWER_FILE = BASE_DIR / "viewer.html"
+
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
