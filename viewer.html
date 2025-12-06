@@ -421,7 +421,7 @@
         
         const CONFIG = {
             // CHANGE THIS TO YOUR SIGNALING SERVER IP
-            signalingUrl: "ws://localhost:8000/ws/viewer1",
+            signalingUrl: (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/viewer1",
             
             stunServers: [
                 { urls: "stun:stun.l.google.com:19302" },
