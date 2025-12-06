@@ -53,7 +53,8 @@ function createPeerConnection(){
   pc.onsignalingstatechange = () => log("Signaling state: " + pc.signalingState);
 
   pc.ontrack = (event) => {
-    const trackId = event.track.id || (event.track.label || ("track-" + (document.querySelectorAll('.tile').length+1)));
+    // Use track.id as primary identifier (set by pusher), fallback to label, then generate one
+    const trackId = event.track.id || event.track.label || ("track-" + (document.querySelectorAll('.tile').length+1));
     let tile = document.getElementById('tile-' + trackId);
     if (!tile) {
       tile = document.createElement('div');
@@ -72,27 +73,18 @@ function createPeerConnection(){
       tile.appendChild(video);
       document.getElementById('videos').appendChild(tile);
 
-      // attach stream if provided
-      if (event.streams && event.streams[0]) {
-        video.srcObject = event.streams[0];
-      } else {
-        const ms = new MediaStream();
-        ms.addTrack(event.track);
-        video.srcObject = ms;
-      }
+      const ms = new MediaStream();
+      ms.addTrack(event.track);
+      video.srcObject = ms;
 
       video.play().catch(e => log("video.play() rejected: " + e.message));
-      log(`Created tile for track id=${trackId} label=${event.track.label || 'N/A'}`);
+      log(`✅ Created tile for track id=${trackId} label=${event.track.label || 'N/A'}`);
     } else {
       const video = tile.querySelector('video');
-      if (event.streams && event.streams[0]) {
-        video.srcObject = event.streams[0];
-      } else {
-        const ms = new MediaStream();
-        ms.addTrack(event.track);
-        video.srcObject = ms;
-      }
-      log(`Updated tile for track id=${trackId}`);
+      const ms = new MediaStream();
+      ms.addTrack(event.track);
+      video.srcObject = ms;
+      log(`🔄 Updated tile for track id=${trackId}`);
     }
   };
 
