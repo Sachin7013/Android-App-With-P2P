@@ -3,80 +3,81 @@
 <head>
   <meta charset="utf-8" />
   <title>Simple WebRTC Viewer</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; background:#f5f6fb; }
+    body { font-family: Arial, Helvetica, sans-serif; padding:18px; background:#f3f4f8; color:#222; }
+    h2 { margin-top:0; }
     #videos { display:flex; gap:12px; flex-wrap:wrap; }
-    video { width: 480px; height: 270px; background:#000; border-radius:6px; }
-    #status { margin: 8px 0; color:#333; }
-    button { padding:8px 12px; border-radius:6px; }
-    pre { background:#222;color:#fff;padding:8px;border-radius:6px; max-height:160px; overflow:auto; }
+    video { width:480px; height:270px; background:#000; border-radius:6px; display:block; }
+    #log { margin-top:12px; background:#111; color:#ddd; padding:8px; border-radius:6px; max-height:220px; overflow:auto; font-family:monospace; font-size:12px; }
+    button { margin-right:8px; padding:8px 10px; border-radius:6px; }
   </style>
 </head>
 <body>
   <h2>Simple WebRTC Viewer</h2>
-  <div id="status">Status: <span id="statText">idle</span></div>
-  <div id="videos"></div>
-  <div style="margin-top:12px;">
+  <div>Status: <span id="status">idle</span></div>
+  <div style="margin-top:10px;">
     <button id="btnReconnect">Reconnect</button>
-    <button id="btnUnmuteAll">Unmute All</button>
+    <button id="btnUnmute">Unmute All</button>
   </div>
-  <h4>Logs</h4>
+  <div id="videos"></div>
   <pre id="log"></pre>
 
 <script>
-/* ---------- CONFIG ---------- */
-/* change this to your actual signaling endpoint for this viewer */
-const SIGNALING_URL = "wss://camera-relay.onrender.com/ws/viewer1"; // <- update if needed
+/* ---------- CONFIG - update if necessary ---------- */
+const SIGNALING_URL = "wss://camera-relay.onrender.com/ws/viewer1"; // update to your server/path if needed
 const VIEWER_ID = "viewer1";
 
-/* optional TURN / STUN - add if you have */
+/* Add TURN / STUN servers here if you need them */
 const ICE_SERVERS = [
-  { urls: "stun:stun.l.google.com:19302" },
-  // example TURN (uncomment & fill if you have): 
-  // { urls: "turn:52.64.197.245:3478?transport=udp", username: "turnuser", credential: "turnpass" }
+  { urls: "stun:stun.l.google.com:19302" }
+  // Example TURN: { urls: "turn:52.64.197.245:3478?transport=udp", username: "turnuser", credential: "turnpass" }
 ];
 
 /* ---------- STATE ---------- */
 let pc = null;
 let ws = null;
-let logs = [];
-let trackCount = 0;
 let broadcasterId = null;
+let localCandidateQueue = []; // buffer local ice candidates until we know broadcasterId
 
 /* ---------- UI helpers ---------- */
 const logEl = document.getElementById('log');
 function log(msg) {
   const t = new Date().toLocaleTimeString();
-  logs.push(`[${t}] ${msg}`);
-  if (logs.length > 1000) logs.shift();
-  logEl.textContent = logs.join("\n");
+  logEl.textContent = `[${t}] ${msg}\n` + logEl.textContent;
+  document.getElementById('status').textContent = msg.split('\n')[0];
   console.log(msg);
-  document.getElementById('statText').textContent = msg.split('\n')[0];
 }
 
-/* ---------- WebRTC setup ---------- */
+/* ---------- create peer connection ---------- */
 function createPeerConnection() {
+  if (pc && pc.connectionState !== "closed") {
+    try { pc.close(); } catch(e) {}
+  }
+
   pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-  pc.oniceconnectionstatechange = () => {
-    log("ICE: " + pc.iceConnectionState);
-  };
-  pc.onconnectionstatechange = () => {
-    log("Connection: " + pc.connectionState);
-  };
+  pc.oniceconnectionstatechange = () => log("ICE state: " + pc.iceConnectionState);
+  pc.onconnectionstatechange = () => log("Connection state: " + pc.connectionState);
+  pc.onsignalingstatechange = () => log("Signaling state: " + pc.signalingState);
 
+  // ontrack: always create a new video element per incoming track
   pc.ontrack = (event) => {
-    // create an element per incoming track
-    trackCount += 1;
-    const id = "track-" + trackCount;
+    const trackIndex = document.querySelectorAll('video').length + 1;
+    const label = event.track.label || `Camera ${trackIndex}`;
+
+    const caption = document.createElement('div');
+    caption.textContent = label;
+    caption.style.fontSize = '13px';
+    caption.style.marginBottom = '6px';
+
     const video = document.createElement('video');
-    video.id = id;
     video.autoplay = true;
     video.playsInline = true;
-    video.muted = true; // start muted to allow autoplay
+    video.muted = true; // start muted to avoid autoplay block
     video.controls = true;
 
-    // prefer streams if provided
+    // prefer `streams` if present
     if (event.streams && event.streams[0]) {
       video.srcObject = event.streams[0];
     } else {
@@ -85,76 +86,66 @@ function createPeerConnection() {
       video.srcObject = ms;
     }
 
-    const label = event.track.label || `Camera ${trackCount}`;
-    const caption = document.createElement('div');
-    caption.textContent = label;
-    caption.style.fontSize = '12px';
-    caption.style.marginBottom = '6px';
-
     const container = document.createElement('div');
     container.appendChild(caption);
     container.appendChild(video);
-
     document.getElementById('videos').appendChild(container);
 
-    // try to play (handle autoplay policies)
-    video.play().catch(e => {
-      log("video.play() rejected: " + e.message);
-    });
+    // try to play (catch autoplay rejection)
+    video.play().catch(e => log("video.play() rejected: " + e.message));
 
-    log("Received track: " + label + " (kind=" + event.track.kind + ")");
+    log(`Received track: id=${event.track.id} label=${event.track.label || "N/A"} kind=${event.track.kind}`);
   };
 
+  // buffer local ICE candidates if we don't yet know broadcaster id
   pc.onicecandidate = (ev) => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    // send candidate to the broadcaster (must be set from OFFER)
+    const c = ev.candidate;
+    const payload = {
+      type: "ice",
+      from: VIEWER_ID,
+      to: broadcasterId || null,
+      candidate: c ? {
+        candidate: c.candidate,
+        sdpMid: c.sdpMid,
+        sdpMLineIndex: c.sdpMLineIndex
+      } : {}
+    };
+
     if (!broadcasterId) {
-      // if no broadcaster yet, queueing could be implemented; here we just log
-      log("onicecandidate: broadcasterId unknown yet, skipping candidate");
+      // buffer until we know who to send to
+      localCandidateQueue.push(payload);
+      log("Buffered local ICE candidate (broadcaster unknown)");
       return;
     }
 
-    const cand = ev.candidate;
-    const msg = {
-      type: "ice",
-      from: VIEWER_ID,
-      to: broadcasterId,
-      candidate: cand ? {
-        candidate: cand.candidate,
-        sdpMid: cand.sdpMid,
-        sdpMLineIndex: cand.sdpMLineIndex
-      } : { } // empty candidate means end-of-candidates
-    };
-    ws.send(JSON.stringify(msg));
-    log("Sent local ICE candidate to " + broadcasterId);
+    // send immediately
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payload));
+      log("Sent local ICE candidate to " + broadcasterId);
+    } else {
+      log("Signaling WS not open; buffered local ICE candidate");
+      localCandidateQueue.push(payload);
+    }
   };
 
   return pc;
 }
 
-/* ---------- Signaling ---------- */
+/* ---------- signaling ---------- */
 function connectSignaling() {
   if (ws && ws.readyState === WebSocket.OPEN) return;
   log("Connecting to signaling: " + SIGNALING_URL);
   ws = new WebSocket(SIGNALING_URL);
 
-  ws.onopen = () => {
-    log("Signaling connected");
-  };
+  ws.onopen = () => log("Signaling connected");
+  ws.onclose = () => log("Signaling closed");
+  ws.onerror = (e) => log("Signaling error");
 
   ws.onmessage = async (evt) => {
     let msg;
     try { msg = JSON.parse(evt.data); } catch (e) { log("Invalid JSON from signaling"); return; }
-    log("Signaling message: " + (msg.type||"unknown") + " from:" + (msg.from||"?"));
+    log("Signaling msg: type=" + (msg.type||"") + " from=" + (msg.from||"?"));
     await handleSignalingMessage(msg);
-  };
-
-  ws.onerror = (e) => {
-    log("WebSocket error");
-  };
-
-  ws.onclose = () => {
-    log("Signaling closed");
   };
 }
 
@@ -162,21 +153,20 @@ async function handleSignalingMessage(msg) {
   const { type, from, sdp, candidate } = msg;
 
   if (type === "offer") {
-    // OFFER from pusher (camera)
+    // OFFER from broadcaster (camera)
     broadcasterId = from;
-    log("Got OFFER from " + broadcasterId + " — creating answer");
+    log("Received OFFER from " + broadcasterId);
 
-    if (!pc || pc.connectionState === "closed") {
-      createPeerConnection();
-    }
+    // flush any buffered local candidates to new broadcaster later (after answer)
+    if (!pc) pc = createPeerConnection();
 
+    // apply remote offer
     try {
-      const offer = { type: "offer", sdp: sdp };
-      await pc.setRemoteDescription(offer);
+      await pc.setRemoteDescription({ type: "offer", sdp: sdp });
+      log("Remote description (offer) set");
+
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-
-      // send answer back to broadcaster
       const answerMsg = {
         type: "answer",
         from: VIEWER_ID,
@@ -185,51 +175,59 @@ async function handleSignalingMessage(msg) {
       };
       ws.send(JSON.stringify(answerMsg));
       log("Sent ANSWER to " + broadcasterId);
+
+      // send any buffered local candidates now that we know broadcasterId
+      while (localCandidateQueue.length > 0) {
+        const cmsg = localCandidateQueue.shift();
+        cmsg.to = broadcasterId;
+        ws.send(JSON.stringify(cmsg));
+        log("Flushed buffered local ICE candidate to " + broadcasterId);
+      }
     } catch (e) {
-      log("Failed to handle offer: " + e.message);
+      log("Error handling offer: " + e.message);
     }
 
   } else if (type === "ice") {
-    // incoming ICE candidate from broadcaster
     try {
       if (!candidate || !candidate.candidate) {
-        // end-of-candidates
+        // end-of-candidates signal
         await pc.addIceCandidate(null);
-        log("Remote ICE gathering complete");
+        log("Remote ICE end-of-candidates (added null)");
         return;
       }
-      const ice = {
+      // add remote candidate
+      await pc.addIceCandidate({
         candidate: candidate.candidate,
         sdpMid: candidate.sdpMid,
         sdpMLineIndex: candidate.sdpMLineIndex
-      };
-      await pc.addIceCandidate(ice);
+      });
       log("Added remote ICE candidate");
     } catch (e) {
-      log("Error adding remote ICE: " + e.message);
+      log("Failed to add remote ICE candidate: " + e.message);
     }
   } else {
-    log("Unknown signaling type: " + type);
+    log("Unknown signaling message type: " + type);
   }
 }
 
-/* ---------- Controls ---------- */
+/* ---------- controls ---------- */
 document.getElementById('btnReconnect').addEventListener('click', () => {
-  if (pc) pc.close();
-  if (ws) ws.close();
+  if (pc) try { pc.close(); } catch(e) {}
+  if (ws) try { ws.close(); } catch(e) {}
   document.getElementById('videos').innerHTML = "";
-  trackCount = 0; broadcasterId = null;
+  broadcasterId = null;
+  localCandidateQueue = [];
   pc = createPeerConnection();
   setTimeout(connectSignaling, 200);
 });
 
-document.getElementById('btnUnmuteAll').addEventListener('click', () => {
+document.getElementById('btnUnmute').addEventListener('click', () => {
   document.querySelectorAll('video').forEach(v => { v.muted = false; v.play().catch(()=>{}); });
   log("Unmuted all videos (user action)");
 });
 
 /* ---------- startup ---------- */
-(async function start(){
+(function start() {
   pc = createPeerConnection();
   connectSignaling();
 })();
