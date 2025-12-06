@@ -1,548 +1,835 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Multi-Camera Viewer - AWS TURN</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎥 Multi-Camera WebRTC Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      padding: 20px;
-    }
+        body {
+            font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
 
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
-    }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
 
-    .header {
-      background: white;
-      border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      margin-bottom: 20px;
-    }
+        /* ========== HEADER ========== */
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
 
-    h1 {
-      color: #333;
-      margin-bottom: 10px;
-      font-size: 28px;
-    }
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
 
-    .status-bar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 12px;
-      background: #f7f9fc;
-      border-radius: 8px;
-      margin-top: 15px;
-    }
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
 
-    .status-indicator {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #ffc107;
-      animation: pulse 2s infinite;
-    }
+        /* ========== STATUS BAR ========== */
+        .status-bar {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
 
-    .status-indicator.connected {
-      background: #4caf50;
-      animation: none;
-    }
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
 
-    .status-indicator.failed {
-      background: #f44336;
-      animation: none;
-    }
+        .status-indicator {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #ff6b6b;
+            animation: pulse 2s infinite;
+            flex-shrink: 0;
+        }
 
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
+        .status-indicator.connected {
+            background: #51cf66;
+            animation: pulse-green 2s infinite;
+        }
 
-    .status-text {
-      font-weight: 600;
-      color: #333;
-      font-size: 14px;
-    }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
 
-    .camera-count {
-      margin-left: auto;
-      padding: 6px 12px;
-      background: #4caf50;
-      color: white;
-      border-radius: 20px;
-      font-size: 13px;
-      font-weight: 600;
-    }
+        @keyframes pulse-green {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
 
-    /* Grid Layout for Multiple Videos */
-    .videos-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-      gap: 20px;
-      margin-bottom: 20px;
-    }
+        .status-label {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 0.95em;
+        }
 
-    .video-container {
-      background: white;
-      border-radius: 12px;
-      padding: 15px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
+        .status-value {
+            color: #666;
+            font-size: 0.9em;
+        }
 
-    .video-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 10px;
-      padding-bottom: 10px;
-      border-bottom: 2px solid #f0f0f0;
-    }
+        /* ========== ALERTS ========== */
+        .alert {
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            animation: slideIn 0.3s ease-out;
+        }
 
-    .camera-label {
-      font-weight: 600;
-      color: #333;
-      font-size: 16px;
-    }
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
 
-    .camera-status {
-      padding: 4px 10px;
-      background: #e3f2fd;
-      color: #1976d2;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 600;
-    }
+        .alert.show {
+            display: flex;
+        }
 
-    .camera-status.active {
-      background: #4caf50;
-      color: white;
-    }
+        .alert-error {
+            background: #ffe0e0;
+            color: #d32f2f;
+            border-left: 4px solid #d32f2f;
+        }
 
-    video {
-      width: 100%;
-      height: auto;
-      max-height: 400px;
-      background: #000;
-      border-radius: 8px;
-      display: block;
-    }
+        .alert-success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
 
-    .log-container {
-      background: white;
-      border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
+        /* ========== VIDEO GRID ========== */
+        .videos-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
 
-    .log-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 15px;
-    }
+        .video-container {
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            position: relative;
+        }
 
-    .log-title {
-      font-size: 18px;
-      font-weight: 600;
-      color: #333;
-    }
+        .video-container:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 16px 50px rgba(0, 0, 0, 0.4);
+        }
 
-    .clear-btn {
-      padding: 8px 16px;
-      background: #667eea;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-      transition: background 0.3s;
-    }
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            padding-bottom: 75%;
+            overflow: hidden;
+            background: #000;
+        }
 
-    .clear-btn:hover {
-      background: #5568d3;
-    }
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
 
-    #log {
-      background: #1e1e1e;
-      color: #d4d4d4;
-      padding: 15px;
-      border-radius: 8px;
-      height: 300px;
-      overflow-y: auto;
-      font-family: 'Courier New', monospace;
-      font-size: 13px;
-      line-height: 1.6;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-    }
+        .video-label {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            z-index: 10;
+            backdrop-filter: blur(5px);
+        }
 
-    .log-entry {
-      margin-bottom: 4px;
-    }
+        .video-stats {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            background: rgba(0, 0, 0, 0.85);
+            color: #51cf66;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            font-weight: 600;
+            backdrop-filter: blur(5px);
+        }
 
-    .log-success { color: #4caf50; }
-    .log-error { color: #f44336; }
-    .log-warning { color: #ffc107; }
-    .log-info { color: #2196f3; }
+        /* ========== CONTROLS ========== */
+        .controls {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
 
-    .turn-info {
-      background: #e3f2fd;
-      border-left: 4px solid #2196f3;
-      padding: 12px;
-      margin-top: 15px;
-      border-radius: 4px;
-    }
+        .controls h3 {
+            margin-bottom: 15px;
+            color: #667eea;
+            font-size: 1.1em;
+        }
 
-    .turn-info strong {
-      color: #1976d2;
-    }
+        .control-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+        }
 
-    /* Responsive */
-    @media (max-width: 768px) {
-      .videos-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-  </style>
+        button {
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* ========== STATS PANEL ========== */
+        .stats-panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .stats-panel h3 {
+            margin-bottom: 15px;
+            color: #667eea;
+            font-size: 1.1em;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-label {
+            font-weight: 600;
+            color: #555;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 1.3em;
+            color: #667eea;
+            font-family: 'Courier New', monospace;
+            font-weight: 700;
+        }
+
+        /* ========== RESPONSIVE ========== */
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .videos-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .control-buttons {
+                grid-template-columns: 1fr;
+            }
+
+            .status-bar {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ========== LOADING STATE ========== */
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
 </head>
 <body>
-  <div class="container">
-    <!-- Header -->
-    <div class="header">
-      <h1>🎥 Multi-Camera Viewer - AWS TURN Server</h1>
-      
-      <div class="status-bar">
-        <div class="status-indicator" id="statusIndicator"></div>
-        <div class="status-text" id="statusText">Initializing...</div>
-        <div class="camera-count" id="cameraCount">Cameras: 0</div>
-      </div>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🎥 Multi-Camera WebRTC Viewer</h1>
+            <p>Live streaming via TURN server</p>
+        </div>
 
-      <div class="turn-info">
-        <strong>🔄 Using YOUR AWS TURN Server:</strong> 52.64.197.245:3478
-      </div>
+        <!-- Alerts -->
+        <div id="errorAlert" class="alert alert-error">
+            <span>⚠️</span>
+            <span id="errorMsg"></span>
+        </div>
+        <div id="successAlert" class="alert alert-success">
+            <span>✅</span>
+            <span id="successMsg"></span>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-indicator" id="statusIndicator"></div>
+                <div>
+                    <div class="status-label">Connection Status</div>
+                    <div class="status-value" id="statusText">Initializing...</div>
+                </div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">📡 Signaling</div>
+                <div class="status-value" id="signalingStatus">Disconnected</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">🔗 Peer Connection</div>
+                <div class="status-value" id="peerStatus">new</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">📹 Video Tracks</div>
+                <div class="status-value" id="trackCount">0</div>
+            </div>
+        </div>
+
+        <!-- Video Grid -->
+        <div class="videos-grid" id="videosGrid">
+            <!-- Videos will be added dynamically -->
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <h3>⚙️ Controls</h3>
+            <div class="control-buttons">
+                <button onclick="toggleAllMute()">🔊 Mute/Unmute All</button>
+                <button onclick="toggleFullscreen()">⛶ Fullscreen</button>
+                <button onclick="resetConnection()">🔄 Reset Connection</button>
+                <button onclick="copyLogs()">📋 Copy Logs</button>
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="stats-panel">
+            <h3>📊 Connection Statistics</h3>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">ICE State</div>
+                    <div class="stat-value" id="iceState">new</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Connection State</div>
+                    <div class="stat-value" id="connState">new</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Signaling State</div>
+                    <div class="stat-value" id="sigState">stable</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Data Received</div>
+                    <div class="stat-value" id="bytesReceived">0 MB</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Packets Lost</div>
+                    <div class="stat-value" id="packetsLost">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Jitter</div>
+                    <div class="stat-value" id="jitter">0 ms</div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <!-- Video Grid (Multiple Cameras) -->
-    <div class="videos-grid" id="videosGrid">
-      <!-- Videos will be added here dynamically -->
-    </div>
-
-    <!-- Connection Log -->
-    <div class="log-container">
-      <div class="log-header">
-        <div class="log-title">📋 Connection Log</div>
-        <button class="clear-btn" onclick="clearLog()">Clear Log</button>
-      </div>
-      <div id="log"></div>
-    </div>
-  </div>
-
-  <script>
-    // ========================================
-    // Configuration
-    // ========================================
-
-    const CONFIG = {
-      signaling: "wss://camera-relay.onrender.com/ws/viewer1",
-      cameraId: "camera1",
-      
-      turn: {
-        ip: "52.64.197.245",
-        port: "3478",
-        username: "webrtcuser",
-        password: "changeThisPassword2025!"
-      }
-    };
-
-    // ========================================
-    // ICE Servers Configuration
-    // ========================================
-
-    const ICE_SERVERS = [
-      { urls: "stun:stun.l.google.com:19302" },
-      {
-        urls: `turn:${CONFIG.turn.ip}:${CONFIG.turn.port}?transport=udp`,
-        username: CONFIG.turn.username,
-        credential: CONFIG.turn.password
-      },
-      {
-        urls: `turn:${CONFIG.turn.ip}:${CONFIG.turn.port}?transport=tcp`,
-        username: CONFIG.turn.username,
-        credential: CONFIG.turn.password
-      }
-    ];
-
-    // ========================================
-    // UI Elements
-    // ========================================
-
-    const logElement = document.getElementById('log');
-    const statusText = document.getElementById('statusText');
-    const statusIndicator = document.getElementById('statusIndicator');
-    const cameraCount = document.getElementById('cameraCount');
-    const videosGrid = document.getElementById('videosGrid');
-
-    // Track received cameras
-    let receivedCameras = 0;
-
-    // ========================================
-    // Logging Functions
-    // ========================================
-
-    function log(message, type = 'info') {
-      const timestamp = new Date().toLocaleTimeString();
-      const entry = document.createElement('div');
-      entry.className = `log-entry log-${type}`;
-      entry.textContent = `[${timestamp}] ${message}`;
-      logElement.appendChild(entry);
-      logElement.scrollTop = logElement.scrollHeight;
-      console.log(`[${type}]`, message);
-    }
-
-    function clearLog() {
-      logElement.innerHTML = '';
-      log('Log cleared', 'info');
-    }
-
-    function setStatus(text, state = 'connecting') {
-      statusText.textContent = text;
-      statusIndicator.className = `status-indicator ${state}`;
-      log(`Status: ${text}`, state === 'connected' ? 'success' : state === 'failed' ? 'error' : 'info');
-    }
-
-    function updateCameraCount(count) {
-      cameraCount.textContent = `Cameras: ${count}`;
-    }
-
-    // ========================================
-    // Create Video Element for Each Camera
-    // ========================================
-
-    function createVideoElement(track, trackIndex) {
-      receivedCameras++;
-      updateCameraCount(receivedCameras);
-
-      const container = document.createElement('div');
-      container.className = 'video-container';
-      container.id = `camera-${trackIndex}`;
-
-      const header = document.createElement('div');
-      header.className = 'video-header';
-
-      const label = document.createElement('div');
-      label.className = 'camera-label';
-      label.textContent = `📹 Camera ${trackIndex}`;
-
-      const status = document.createElement('div');
-      status.className = 'camera-status active';
-      status.textContent = 'LIVE';
-
-      header.appendChild(label);
-      header.appendChild(status);
-
-      const video = document.createElement('video');
-      video.id = `video-${trackIndex}`;
-      video.autoplay = true;
-      video.playsinline = true;
-      video.muted = true;
-      video.controls = true;
-
-      // Create a new MediaStream for this track
-      const stream = new MediaStream([track]);
-      video.srcObject = stream;
-
-      container.appendChild(header);
-      container.appendChild(video);
-      videosGrid.appendChild(container);
-
-      video.play()
-        .then(() => log(`▶️ Camera ${trackIndex} playback started`, 'success'))
-        .catch(err => log(`❌ Camera ${trackIndex} playback error: ${err.message}`, 'error'));
-
-      log(`✅ Camera ${trackIndex} added to grid`, 'success');
-    }
-
-    // ========================================
-    // WebRTC Peer Connection Setup
-    // ========================================
-
-    log('🚀 Initializing WebRTC multi-camera viewer...', 'info');
-    log(`🔄 TURN Server: ${CONFIG.turn.ip}:${CONFIG.turn.port}`, 'info');
-
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-
-    // Track counter
-    let trackCounter = 0;
-
-    // ========================================
-    // ICE Candidate Handling
-    // ========================================
-
-    pc.onicecandidate = (event) => {
-      if (!event.candidate) {
-        log('✅ Local ICE gathering completed', 'success');
-        return;
-      }
-
-      const candidate = event.candidate.candidate;
-      log(`ICE candidate: ${candidate.substring(0, 50)}...`, 'info');
-
-      if (candidate.includes('relay')) {
-        log(`🔄 Using TURN relay from AWS: ${CONFIG.turn.ip}`, 'success');
-      }
-
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        const message = {
-          type: 'ice',
-          from: 'viewer1',
-          to: CONFIG.cameraId,
-          candidate: {
-            candidate: event.candidate.candidate,
-            sdpMid: event.candidate.sdpMid,
-            sdpMLineIndex: event.candidate.sdpMLineIndex
-          }
-        };
-        ws.send(JSON.stringify(message));
-      }
-    };
-
-    // ========================================
-    // Connection State Monitoring
-    // ========================================
-
-    pc.onicegatheringstatechange = () => {
-      log(`ICE gathering state: ${pc.iceGatheringState}`, 'info');
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      const state = pc.iceConnectionState;
-      log(`ICE connection state: ${state}`, 'info');
-
-      if (state === 'connected') {
-        setStatus('✅ Connected - Streaming', 'connected');
-      } else if (state === 'disconnected') {
-        setStatus('⚠️ Disconnected', 'warning');
-      } else if (state === 'failed') {
-        setStatus('❌ Connection Failed', 'failed');
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      const state = pc.connectionState;
-      log(`Connection state: ${state}`, 'info');
-
-      if (state === 'connected') {
-        log('✅ Peer connection established!', 'success');
-      } else if (state === 'failed') {
-        log('❌ Peer connection failed!', 'error');
-      }
-    };
-
-    // ========================================
-    // Track Handling (Receive Multiple Videos)
-    // ========================================
-
-    pc.ontrack = (event) => {
-      trackCounter++;
-      log(`✅ Received video track ${trackCounter} from camera`, 'success');
-      
-      // Create separate video element for each track
-      createVideoElement(event.track, trackCounter);
-    };
-
-    // ========================================
-    // WebSocket Signaling
-    // ========================================
-
-    let ws;
-
-    try {
-      setStatus('Connecting to signaling server...', 'connecting');
-      ws = new WebSocket(CONFIG.signaling);
-    } catch (err) {
-      log(`❌ WebSocket error: ${err.message}`, 'error');
-      setStatus('❌ Connection Failed', 'failed');
-      throw err;
-    }
-
-    ws.onopen = () => {
-      log('✅ Signaling server connected', 'success');
-      setStatus('Waiting for camera offer...', 'connecting');
-    };
-
-    ws.onclose = () => {
-      log('⚠️ Signaling server disconnected', 'warning');
-      setStatus('❌ Disconnected', 'failed');
-    };
-
-    ws.onerror = (error) => {
-      log(`❌ WebSocket error: ${error}`, 'error');
-      setStatus('❌ Connection Error', 'failed');
-    };
-
-    ws.onmessage = async (event) => {
-      try {
-        const message = JSON.parse(event.data);
+    <script>
+        // ========================================
+        // CONFIGURATION
+        // ========================================
         
-        if (message.type === 'offer') {
-          log('📨 Received offer from camera (with multiple tracks)', 'info');
-          setStatus('Processing offer...', 'connecting');
-          
-          await pc.setRemoteDescription({
-            type: 'offer',
-            sdp: message.sdp
-          });
-          
-          log('Creating answer...', 'info');
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          
-          ws.send(JSON.stringify({
-            type: 'answer',
-            from: 'viewer1',
-            to: message.from,
-            sdp: pc.localDescription.sdp
-          }));
-          
-          log('✅ Answer sent to camera', 'success');
-          setStatus('Connecting to cameras...', 'connecting');
-        }
-        else if (message.type === 'ice') {
-          const candidateData = message.candidate;
-          if (candidateData && candidateData.candidate) {
-            await pc.addIceCandidate({
-              candidate: candidateData.candidate,
-              sdpMid: candidateData.sdpMid,
-              sdpMLineIndex: candidateData.sdpMLineIndex
-            });
-            log('Added remote ICE candidate', 'info');
-          }
-        }
-      } catch (err) {
-        log(`❌ Message handling error: ${err.message}`, 'error');
-      }
-    };
+        const CONFIG = {
+            // CHANGE THIS TO YOUR SIGNALING SERVER IP
+            signalingUrl: "ws://localhost:8000/ws/viewer1",
+            
+            stunServers: [
+                { urls: "stun:stun.l.google.com:19302" },
+                { urls: "stun:stun1.l.google.com:19302" },
+                { urls: "stun:stun2.l.google.com:19302" },
+            ],
+            
+            // ADD YOUR TURN SERVER HERE
+            turnServers: [
+                // {
+                //     urls: "turn:YOUR-TURN-IP:3478?transport=udp",
+                //     username: "turnuser",
+                //     credential: "turnpassword",
+                // },
+                // {
+                //     urls: "turn:YOUR-TURN-IP:3478?transport=tcp",
+                //     username: "turnuser",
+                //     credential: "turnpassword",
+                // },
+            ],
+        };
 
-    // ========================================
-    // Startup Message
-    // ========================================
-    log('='.repeat(50), 'info');
-    log('Multi-Camera Viewer Initialized', 'info');
-    log(`Using YOUR AWS TURN Server: ${CONFIG.turn.ip}:${CONFIG.turn.port}`, 'success');
-    log('Waiting for multiple video tracks...', 'info');
-    log('='.repeat(50), 'info');
-  </script>
+        // ========================================
+        // STATE & VARIABLES
+        // ========================================
+        
+        let pc = null;
+        let ws = null;
+        let videoElements = {};
+        let statsInterval = null;
+        let logs = [];
+
+        // ========================================
+        // LOGGING
+        // ========================================
+        
+        function log(msg, type = "info") {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] [${type.toUpperCase()}] ${msg}`;
+            console.log(logEntry);
+            logs.push(logEntry);
+            
+            // Keep last 1000 logs only
+            if (logs.length > 1000) {
+                logs.shift();
+            }
+        }
+
+        function showError(msg) {
+            const alert = document.getElementById("errorAlert");
+            document.getElementById("errorMsg").textContent = msg;
+            alert.classList.add("show");
+            log(msg, "error");
+            setTimeout(() => alert.classList.remove("show"), 5000);
+        }
+
+        function showSuccess(msg) {
+            const alert = document.getElementById("successAlert");
+            document.getElementById("successMsg").textContent = msg;
+            alert.classList.add("show");
+            log(msg, "success");
+            setTimeout(() => alert.classList.remove("show"), 3000);
+        }
+
+        function copyLogs() {
+            const logsText = logs.join("\n");
+            navigator.clipboard.writeText(logsText).then(() => {
+                showSuccess("📋 Logs copied to clipboard!");
+            });
+        }
+
+        // ========================================
+        // STATUS UPDATES
+        // ========================================
+        
+        function updateStatus(text, isConnected = false) {
+            document.getElementById("statusText").textContent = text;
+            const indicator = document.getElementById("statusIndicator");
+            if (isConnected) {
+                indicator.classList.add("connected");
+            } else {
+                indicator.classList.remove("connected");
+            }
+        }
+
+        // ========================================
+        // VIDEO ELEMENT MANAGEMENT
+        // ========================================
+        
+        function createVideoElement(trackLabel) {
+            const videosGrid = document.getElementById("videosGrid");
+            
+            const container = document.createElement("div");
+            container.className = "video-container";
+            container.id = `video-container-${trackLabel}`;
+
+            const wrapper = document.createElement("div");
+            wrapper.className = "video-wrapper";
+
+            const video = document.createElement("video");
+            video.id = `video-${trackLabel}`;
+            video.autoplay = true;
+            video.playsinline = true;
+            video.muted = false;
+
+            const label = document.createElement("div");
+            label.className = "video-label";
+            label.textContent = `📹 ${trackLabel}`;
+
+            const stats = document.createElement("div");
+            stats.className = "video-stats";
+            stats.id = `stats-${trackLabel}`;
+            stats.textContent = "0 fps";
+
+            wrapper.appendChild(video);
+            wrapper.appendChild(label);
+            wrapper.appendChild(stats);
+            container.appendChild(wrapper);
+            videosGrid.appendChild(container);
+
+            videoElements[trackLabel] = video;
+            log(`📹 Created video element for ${trackLabel}`);
+        }
+
+        // ========================================
+        // WEBRTC INITIALIZATION
+        // ========================================
+        
+        async function initializeWebRTC() {
+            log("🔧 Initializing WebRTC...");
+            
+            try {
+                const iceServers = [
+                    ...CONFIG.stunServers,
+                    ...CONFIG.turnServers,
+                ];
+
+                pc = new RTCPeerConnection({ iceServers });
+                log("✅ Peer connection created");
+
+                // ICE Connection State
+                pc.oniceconnectionstatechange = () => {
+                    const state = pc.iceConnectionState;
+                    document.getElementById("iceState").textContent = state;
+                    log(`🧊 ICE state: ${state}`);
+
+                    if (state === "connected" || state === "completed") {
+                        updateStatus("🟢 Connected to broadcaster", true);
+                    } else if (state === "failed") {
+                        showError("❌ ICE connection failed!");
+                        updateStatus("🔴 Connection Failed", false);
+                    }
+                };
+
+                // Peer Connection State
+                pc.onconnectionstatechange = () => {
+                    const state = pc.connectionState;
+                    document.getElementById("connState").textContent = state;
+                    document.getElementById("peerStatus").textContent = state;
+                    log(`🔗 Connection state: ${state}`);
+
+                    if (state === "connected") {
+                        showSuccess("✅ Connected to broadcaster!");
+                    } else if (state === "failed") {
+                        showError("❌ Connection failed - try resetting");
+                    }
+                };
+
+                // Signaling State
+                pc.onsignalingstatechange = () => {
+                    document.getElementById("sigState").textContent = pc.signalingState;
+                };
+
+                // Track Received
+                pc.ontrack = (event) => {
+                    log(`📡 Track received: ${event.track.kind} - ${event.track.label}`);
+                    
+                    const trackLabel = event.track.label || `Track-${Object.keys(videoElements).length + 1}`;
+                    
+                    if (!videoElements[trackLabel]) {
+                        createVideoElement(trackLabel);
+                    }
+
+                    const videoElement = videoElements[trackLabel];
+                    const stream = new MediaStream([event.track]);
+                    videoElement.srcObject = stream;
+
+                    document.getElementById("trackCount").textContent = Object.keys(videoElements).length;
+                    log(`✅ Video playing: ${trackLabel}`);
+                };
+
+                // ICE Candidate
+                pc.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        sendMessage({
+                            type: "ice",
+                            from: "viewer1",
+                            to: "broadcaster1",
+                            candidate: {
+                                candidate: event.candidate.candidate,
+                                sdpMid: event.candidate.sdpMid,
+                                sdpMLineIndex: event.candidate.sdpMLineIndex,
+                            },
+                        });
+                    }
+                };
+
+                return true;
+            } catch (e) {
+                showError(`❌ WebRTC init failed: ${e.message}`);
+                return false;
+            }
+        }
+
+        // ========================================
+        // SIGNALING
+        // ========================================
+        
+        async function connectSignaling() {
+            log(`📡 Connecting to: ${CONFIG.signalingUrl}`);
+            updateStatus("🔄 Connecting to signaling server...", false);
+
+            try {
+                ws = new WebSocket(CONFIG.signalingUrl);
+
+                ws.onopen = () => {
+                    log("✅ Connected to signaling server");
+                    document.getElementById("signalingStatus").textContent = "Connected";
+                    updateStatus("📡 Waiting for offer from broadcaster...", false);
+                };
+
+                ws.onmessage = async (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        await handleSignalingMessage(msg);
+                    } catch (e) {
+                        log(`⚠️  Message parsing error: ${e.message}`, "warn");
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    showError(`❌ WebSocket error`);
+                    log(`❌ WebSocket error: ${error}`, "error");
+                    document.getElementById("signalingStatus").textContent = "Error";
+                };
+
+                ws.onclose = () => {
+                    log("⚠️  Signaling server disconnected");
+                    updateStatus("❌ Disconnected from signaling", false);
+                    document.getElementById("signalingStatus").textContent = "Disconnected";
+                };
+            } catch (e) {
+                showError(`❌ Failed to connect: ${e.message}`);
+            }
+        }
+
+        function sendMessage(msg) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(msg));
+            }
+        }
+
+        async function handleSignalingMessage(msg) {
+            const { type, from, sdp, candidate } = msg;
+
+            if (type === "offer") {
+                log(`📨 Received OFFER from ${from}`);
+                log(`   📹 Tracks: ${msg.num_tracks || "?"}, Cameras: ${(msg.cameras || []).join(", ")}`);
+
+                try {
+                    const offer = new RTCSessionDescription({
+                        type: "offer",
+                        sdp: sdp,
+                    });
+
+                    await pc.setRemoteDescription(offer);
+                    log("✅ Remote description set");
+
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+
+                    sendMessage({
+                        type: "answer",
+                        from: "viewer1",
+                        to: from,
+                        sdp: pc.localDescription.sdp,
+                    });
+
+                    log("✅ Sent ANSWER - stream starting...");
+                    updateStatus("🟡 Connecting...", false);
+                } catch (e) {
+                    showError(`❌ Offer handling failed: ${e.message}`);
+                }
+            } 
+            else if (type === "ice") {
+                try {
+                    if (!candidate.candidate) {
+                        await pc.addIceCandidate(null);
+                        log("✅ Remote ICE gathering complete");
+                        return;
+                    }
+
+                    const iceCandidate = new RTCIceCandidate({
+                        candidate: candidate.candidate,
+                        sdpMid: candidate.sdpMid,
+                        sdpMLineIndex: candidate.sdpMLineIndex,
+                    });
+
+                    await pc.addIceCandidate(iceCandidate);
+                } catch (e) {
+                    log(`⚠️  ICE error: ${e.message}`, "warn");
+                }
+            }
+        }
+
+        // ========================================
+        // STATISTICS
+        // ========================================
+        
+        async function updateStats() {
+            if (!pc) return;
+
+            try {
+                const stats = await pc.getStats();
+                let bytesReceived = 0;
+                let packetsLost = 0;
+                let jitter = 0;
+
+                stats.forEach((report) => {
+                    if (report.type === "inbound-rtp" && report.mediaType === "video") {
+                        bytesReceived += report.bytesReceived || 0;
+                        packetsLost += report.packetsLost || 0;
+                        jitter = Math.round((report.jitter || 0) * 1000);
+                    }
+                });
+
+                document.getElementById("bytesReceived").textContent =
+                    (bytesReceived / (1024 * 1024)).toFixed(2) + " MB";
+                document.getElementById("packetsLost").textContent = packetsLost;
+                document.getElementById("jitter").textContent = jitter + " ms";
+            } catch (e) {
+                // Silent fail for stats
+            }
+        }
+
+        // ========================================
+        // CONTROLS
+        // ========================================
+        
+        function toggleAllMute() {
+            const isMuted = Object.values(videoElements)[0]?.muted;
+            Object.values(videoElements).forEach((video) => {
+                video.muted = !isMuted;
+            });
+            log(`🔊 All videos ${!isMuted ? "muted" : "unmuted"}`);
+        }
+
+        function toggleFullscreen() {
+            const container = document.querySelector(".container");
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(e => {
+                    log(`⚠️  Fullscreen error: ${e.message}`, "warn");
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function resetConnection() {
+            log("🔄 Resetting connection...");
+            if (pc) pc.close();
+            if (ws) ws.close();
+            videoElements = {};
+            document.getElementById("videosGrid").innerHTML = "";
+            setTimeout(init, 1000);
+        }
+
+        // ========================================
+        // INITIALIZATION
+        // ========================================
+        
+        async function init() {
+            log("=" * 70);
+            log("🎥 VIEWER INITIALIZATION STARTED");
+            log("=" * 70);
+            
+            updateStatus("🔧 Initializing...", false);
+
+            const webrtcOk = await initializeWebRTC();
+            if (!webrtcOk) return;
+
+            await connectSignaling();
+
+            statsInterval = setInterval(updateStats, 1000);
+
+            log("✅ INITIALIZATION COMPLETE");
+            log("=" * 70);
+        }
+
+        // Start on load
+        window.addEventListener("load", init);
+
+        // Cleanup on unload
+        window.addEventListener("beforeunload", () => {
+            if (pc) pc.close();
+            if (ws) ws.close();
+            if (statsInterval) clearInterval(statsInterval);
+        });
+    </script>
 </body>
 </html>
