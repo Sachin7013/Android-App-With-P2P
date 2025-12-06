@@ -1,835 +1,238 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎥 Multi-Camera WebRTC Viewer</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-            color: #333;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        /* ========== HEADER ========== */
-        .header {
-            text-align: center;
-            color: white;
-            margin-bottom: 30px;
-        }
-
-        .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }
-
-        .header p {
-            font-size: 1.1em;
-            opacity: 0.9;
-        }
-
-        /* ========== STATUS BAR ========== */
-        .status-bar {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        }
-
-        .status-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .status-indicator {
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            background: #ff6b6b;
-            animation: pulse 2s infinite;
-            flex-shrink: 0;
-        }
-
-        .status-indicator.connected {
-            background: #51cf66;
-            animation: pulse-green 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
-        }
-
-        @keyframes pulse-green {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.7; transform: scale(1.1); }
-        }
-
-        .status-label {
-            font-weight: 600;
-            color: #667eea;
-            font-size: 0.95em;
-        }
-
-        .status-value {
-            color: #666;
-            font-size: 0.9em;
-        }
-
-        /* ========== ALERTS ========== */
-        .alert {
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            display: none;
-            align-items: center;
-            gap: 12px;
-            animation: slideIn 0.3s ease-out;
-        }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .alert.show {
-            display: flex;
-        }
-
-        .alert-error {
-            background: #ffe0e0;
-            color: #d32f2f;
-            border-left: 4px solid #d32f2f;
-        }
-
-        .alert-success {
-            background: #e8f5e9;
-            color: #388e3c;
-            border-left: 4px solid #388e3c;
-        }
-
-        /* ========== VIDEO GRID ========== */
-        .videos-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .video-container {
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-            transition: all 0.3s ease;
-            position: relative;
-        }
-
-        .video-container:hover {
-            transform: translateY(-8px);
-            box-shadow: 0 16px 50px rgba(0, 0, 0, 0.4);
-        }
-
-        .video-wrapper {
-            position: relative;
-            width: 100%;
-            padding-bottom: 75%;
-            overflow: hidden;
-            background: #000;
-        }
-
-        video {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            display: block;
-        }
-
-        .video-label {
-            position: absolute;
-            top: 15px;
-            left: 15px;
-            background: rgba(0, 0, 0, 0.85);
-            color: #fff;
-            padding: 10px 16px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 700;
-            z-index: 10;
-            backdrop-filter: blur(5px);
-        }
-
-        .video-stats {
-            position: absolute;
-            bottom: 15px;
-            right: 15px;
-            background: rgba(0, 0, 0, 0.85);
-            color: #51cf66;
-            padding: 10px 14px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-family: 'Courier New', monospace;
-            z-index: 10;
-            font-weight: 600;
-            backdrop-filter: blur(5px);
-        }
-
-        /* ========== CONTROLS ========== */
-        .controls {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        }
-
-        .controls h3 {
-            margin-bottom: 15px;
-            color: #667eea;
-            font-size: 1.1em;
-        }
-
-        .control-buttons {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 12px;
-        }
-
-        button {
-            padding: 12px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-        }
-
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        button:active {
-            transform: translateY(0);
-        }
-
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        /* ========== STATS PANEL ========== */
-        .stats-panel {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        }
-
-        .stats-panel h3 {
-            margin-bottom: 15px;
-            color: #667eea;
-            font-size: 1.1em;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-        }
-
-        .stat-card {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            padding: 15px;
-            border-radius: 8px;
-            border-left: 4px solid #667eea;
-        }
-
-        .stat-label {
-            font-weight: 600;
-            color: #555;
-            font-size: 0.9em;
-            margin-bottom: 5px;
-        }
-
-        .stat-value {
-            font-size: 1.3em;
-            color: #667eea;
-            font-family: 'Courier New', monospace;
-            font-weight: 700;
-        }
-
-        /* ========== RESPONSIVE ========== */
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 1.8em;
-            }
-
-            .videos-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .control-buttons {
-                grid-template-columns: 1fr;
-            }
-
-            .status-bar {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* ========== LOADING STATE ========== */
-        .loading-spinner {
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-    </style>
+  <meta charset="utf-8" />
+  <title>Simple WebRTC Viewer</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background:#f5f6fb; }
+    #videos { display:flex; gap:12px; flex-wrap:wrap; }
+    video { width: 480px; height: 270px; background:#000; border-radius:6px; }
+    #status { margin: 8px 0; color:#333; }
+    button { padding:8px 12px; border-radius:6px; }
+    pre { background:#222;color:#fff;padding:8px;border-radius:6px; max-height:160px; overflow:auto; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <h1>🎥 Multi-Camera WebRTC Viewer</h1>
-            <p>Live streaming via TURN server</p>
-        </div>
+  <h2>Simple WebRTC Viewer</h2>
+  <div id="status">Status: <span id="statText">idle</span></div>
+  <div id="videos"></div>
+  <div style="margin-top:12px;">
+    <button id="btnReconnect">Reconnect</button>
+    <button id="btnUnmuteAll">Unmute All</button>
+  </div>
+  <h4>Logs</h4>
+  <pre id="log"></pre>
 
-        <!-- Alerts -->
-        <div id="errorAlert" class="alert alert-error">
-            <span>⚠️</span>
-            <span id="errorMsg"></span>
-        </div>
-        <div id="successAlert" class="alert alert-success">
-            <span>✅</span>
-            <span id="successMsg"></span>
-        </div>
+<script>
+/* ---------- CONFIG ---------- */
+/* change this to your actual signaling endpoint for this viewer */
+const SIGNALING_URL = "wss://camera-relay.onrender.com/ws/viewer1"; // <- update if needed
+const VIEWER_ID = "viewer1";
 
-        <!-- Status Bar -->
-        <div class="status-bar">
-            <div class="status-item">
-                <div class="status-indicator" id="statusIndicator"></div>
-                <div>
-                    <div class="status-label">Connection Status</div>
-                    <div class="status-value" id="statusText">Initializing...</div>
-                </div>
-            </div>
-            <div class="status-item">
-                <div class="status-label">📡 Signaling</div>
-                <div class="status-value" id="signalingStatus">Disconnected</div>
-            </div>
-            <div class="status-item">
-                <div class="status-label">🔗 Peer Connection</div>
-                <div class="status-value" id="peerStatus">new</div>
-            </div>
-            <div class="status-item">
-                <div class="status-label">📹 Video Tracks</div>
-                <div class="status-value" id="trackCount">0</div>
-            </div>
-        </div>
+/* optional TURN / STUN - add if you have */
+const ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  // example TURN (uncomment & fill if you have): 
+  // { urls: "turn:52.64.197.245:3478?transport=udp", username: "turnuser", credential: "turnpass" }
+];
 
-        <!-- Video Grid -->
-        <div class="videos-grid" id="videosGrid">
-            <!-- Videos will be added dynamically -->
-        </div>
+/* ---------- STATE ---------- */
+let pc = null;
+let ws = null;
+let logs = [];
+let trackCount = 0;
+let broadcasterId = null;
 
-        <!-- Controls -->
-        <div class="controls">
-            <h3>⚙️ Controls</h3>
-            <div class="control-buttons">
-                <button onclick="toggleAllMute()">🔊 Mute/Unmute All</button>
-                <button onclick="toggleFullscreen()">⛶ Fullscreen</button>
-                <button onclick="resetConnection()">🔄 Reset Connection</button>
-                <button onclick="copyLogs()">📋 Copy Logs</button>
-            </div>
-        </div>
+/* ---------- UI helpers ---------- */
+const logEl = document.getElementById('log');
+function log(msg) {
+  const t = new Date().toLocaleTimeString();
+  logs.push(`[${t}] ${msg}`);
+  if (logs.length > 1000) logs.shift();
+  logEl.textContent = logs.join("\n");
+  console.log(msg);
+  document.getElementById('statText').textContent = msg.split('\n')[0];
+}
 
-        <!-- Statistics -->
-        <div class="stats-panel">
-            <h3>📊 Connection Statistics</h3>
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-label">ICE State</div>
-                    <div class="stat-value" id="iceState">new</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Connection State</div>
-                    <div class="stat-value" id="connState">new</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Signaling State</div>
-                    <div class="stat-value" id="sigState">stable</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Data Received</div>
-                    <div class="stat-value" id="bytesReceived">0 MB</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Packets Lost</div>
-                    <div class="stat-value" id="packetsLost">0</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Jitter</div>
-                    <div class="stat-value" id="jitter">0 ms</div>
-                </div>
-            </div>
-        </div>
-    </div>
+/* ---------- WebRTC setup ---------- */
+function createPeerConnection() {
+  pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-    <script>
-        // ========================================
-        // CONFIGURATION
-        // ========================================
-        
-        const CONFIG = {
-            // CHANGE THIS TO YOUR SIGNALING SERVER IP
-            signalingUrl: (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/viewer1",
-            
-            stunServers: [
-                { urls: "stun:stun.l.google.com:19302" },
-                { urls: "stun:stun1.l.google.com:19302" },
-                { urls: "stun:stun2.l.google.com:19302" },
-            ],
-            
-            // ADD YOUR TURN SERVER HERE
-            turnServers: [
-                // {
-                //     urls: "turn:YOUR-TURN-IP:3478?transport=udp",
-                //     username: "turnuser",
-                //     credential: "turnpassword",
-                // },
-                // {
-                //     urls: "turn:YOUR-TURN-IP:3478?transport=tcp",
-                //     username: "turnuser",
-                //     credential: "turnpassword",
-                // },
-            ],
-        };
+  pc.oniceconnectionstatechange = () => {
+    log("ICE: " + pc.iceConnectionState);
+  };
+  pc.onconnectionstatechange = () => {
+    log("Connection: " + pc.connectionState);
+  };
 
-        // ========================================
-        // STATE & VARIABLES
-        // ========================================
-        
-        let pc = null;
-        let ws = null;
-        let videoElements = {};
-        let statsInterval = null;
-        let logs = [];
+  pc.ontrack = (event) => {
+    // create an element per incoming track
+    trackCount += 1;
+    const id = "track-" + trackCount;
+    const video = document.createElement('video');
+    video.id = id;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.muted = true; // start muted to allow autoplay
+    video.controls = true;
 
-        // ========================================
-        // LOGGING
-        // ========================================
-        
-        function log(msg, type = "info") {
-            const timestamp = new Date().toLocaleTimeString();
-            const logEntry = `[${timestamp}] [${type.toUpperCase()}] ${msg}`;
-            console.log(logEntry);
-            logs.push(logEntry);
-            
-            // Keep last 1000 logs only
-            if (logs.length > 1000) {
-                logs.shift();
-            }
-        }
+    // prefer streams if provided
+    if (event.streams && event.streams[0]) {
+      video.srcObject = event.streams[0];
+    } else {
+      const ms = new MediaStream();
+      ms.addTrack(event.track);
+      video.srcObject = ms;
+    }
 
-        function showError(msg) {
-            const alert = document.getElementById("errorAlert");
-            document.getElementById("errorMsg").textContent = msg;
-            alert.classList.add("show");
-            log(msg, "error");
-            setTimeout(() => alert.classList.remove("show"), 5000);
-        }
+    const label = event.track.label || `Camera ${trackCount}`;
+    const caption = document.createElement('div');
+    caption.textContent = label;
+    caption.style.fontSize = '12px';
+    caption.style.marginBottom = '6px';
 
-        function showSuccess(msg) {
-            const alert = document.getElementById("successAlert");
-            document.getElementById("successMsg").textContent = msg;
-            alert.classList.add("show");
-            log(msg, "success");
-            setTimeout(() => alert.classList.remove("show"), 3000);
-        }
+    const container = document.createElement('div');
+    container.appendChild(caption);
+    container.appendChild(video);
 
-        function copyLogs() {
-            const logsText = logs.join("\n");
-            navigator.clipboard.writeText(logsText).then(() => {
-                showSuccess("📋 Logs copied to clipboard!");
-            });
-        }
+    document.getElementById('videos').appendChild(container);
 
-        // ========================================
-        // STATUS UPDATES
-        // ========================================
-        
-        function updateStatus(text, isConnected = false) {
-            document.getElementById("statusText").textContent = text;
-            const indicator = document.getElementById("statusIndicator");
-            if (isConnected) {
-                indicator.classList.add("connected");
-            } else {
-                indicator.classList.remove("connected");
-            }
-        }
+    // try to play (handle autoplay policies)
+    video.play().catch(e => {
+      log("video.play() rejected: " + e.message);
+    });
 
-        // ========================================
-        // VIDEO ELEMENT MANAGEMENT
-        // ========================================
-        
-        function createVideoElement(trackLabel) {
-            const videosGrid = document.getElementById("videosGrid");
-            
-            const container = document.createElement("div");
-            container.className = "video-container";
-            container.id = `video-container-${trackLabel}`;
+    log("Received track: " + label + " (kind=" + event.track.kind + ")");
+  };
 
-            const wrapper = document.createElement("div");
-            wrapper.className = "video-wrapper";
+  pc.onicecandidate = (ev) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // send candidate to the broadcaster (must be set from OFFER)
+    if (!broadcasterId) {
+      // if no broadcaster yet, queueing could be implemented; here we just log
+      log("onicecandidate: broadcasterId unknown yet, skipping candidate");
+      return;
+    }
 
-            const video = document.createElement("video");
-            video.id = `video-${trackLabel}`;
-            video.autoplay = true;
-            video.playsinline = true;
-            video.muted = false;
+    const cand = ev.candidate;
+    const msg = {
+      type: "ice",
+      from: VIEWER_ID,
+      to: broadcasterId,
+      candidate: cand ? {
+        candidate: cand.candidate,
+        sdpMid: cand.sdpMid,
+        sdpMLineIndex: cand.sdpMLineIndex
+      } : { } // empty candidate means end-of-candidates
+    };
+    ws.send(JSON.stringify(msg));
+    log("Sent local ICE candidate to " + broadcasterId);
+  };
 
-            const label = document.createElement("div");
-            label.className = "video-label";
-            label.textContent = `📹 ${trackLabel}`;
+  return pc;
+}
 
-            const stats = document.createElement("div");
-            stats.className = "video-stats";
-            stats.id = `stats-${trackLabel}`;
-            stats.textContent = "0 fps";
+/* ---------- Signaling ---------- */
+function connectSignaling() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  log("Connecting to signaling: " + SIGNALING_URL);
+  ws = new WebSocket(SIGNALING_URL);
 
-            wrapper.appendChild(video);
-            wrapper.appendChild(label);
-            wrapper.appendChild(stats);
-            container.appendChild(wrapper);
-            videosGrid.appendChild(container);
+  ws.onopen = () => {
+    log("Signaling connected");
+  };
 
-            videoElements[trackLabel] = video;
-            log(`📹 Created video element for ${trackLabel}`);
-        }
+  ws.onmessage = async (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch (e) { log("Invalid JSON from signaling"); return; }
+    log("Signaling message: " + (msg.type||"unknown") + " from:" + (msg.from||"?"));
+    await handleSignalingMessage(msg);
+  };
 
-        // ========================================
-        // WEBRTC INITIALIZATION
-        // ========================================
-        
-        async function initializeWebRTC() {
-            log("🔧 Initializing WebRTC...");
-            
-            try {
-                const iceServers = [
-                    ...CONFIG.stunServers,
-                    ...CONFIG.turnServers,
-                ];
+  ws.onerror = (e) => {
+    log("WebSocket error");
+  };
 
-                pc = new RTCPeerConnection({ iceServers });
-                log("✅ Peer connection created");
+  ws.onclose = () => {
+    log("Signaling closed");
+  };
+}
 
-                // ICE Connection State
-                pc.oniceconnectionstatechange = () => {
-                    const state = pc.iceConnectionState;
-                    document.getElementById("iceState").textContent = state;
-                    log(`🧊 ICE state: ${state}`);
+async function handleSignalingMessage(msg) {
+  const { type, from, sdp, candidate } = msg;
 
-                    if (state === "connected" || state === "completed") {
-                        updateStatus("🟢 Connected to broadcaster", true);
-                    } else if (state === "failed") {
-                        showError("❌ ICE connection failed!");
-                        updateStatus("🔴 Connection Failed", false);
-                    }
-                };
+  if (type === "offer") {
+    // OFFER from pusher (camera)
+    broadcasterId = from;
+    log("Got OFFER from " + broadcasterId + " — creating answer");
 
-                // Peer Connection State
-                pc.onconnectionstatechange = () => {
-                    const state = pc.connectionState;
-                    document.getElementById("connState").textContent = state;
-                    document.getElementById("peerStatus").textContent = state;
-                    log(`🔗 Connection state: ${state}`);
+    if (!pc || pc.connectionState === "closed") {
+      createPeerConnection();
+    }
 
-                    if (state === "connected") {
-                        showSuccess("✅ Connected to broadcaster!");
-                    } else if (state === "failed") {
-                        showError("❌ Connection failed - try resetting");
-                    }
-                };
+    try {
+      const offer = { type: "offer", sdp: sdp };
+      await pc.setRemoteDescription(offer);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
 
-                // Signaling State
-                pc.onsignalingstatechange = () => {
-                    document.getElementById("sigState").textContent = pc.signalingState;
-                };
+      // send answer back to broadcaster
+      const answerMsg = {
+        type: "answer",
+        from: VIEWER_ID,
+        to: broadcasterId,
+        sdp: pc.localDescription.sdp
+      };
+      ws.send(JSON.stringify(answerMsg));
+      log("Sent ANSWER to " + broadcasterId);
+    } catch (e) {
+      log("Failed to handle offer: " + e.message);
+    }
 
-                // Track Received
-                pc.ontrack = (event) => {
-                    log(`📡 Track received: ${event.track.kind} - ${event.track.label}`);
-                    
-                    const trackLabel = event.track.label || `Track-${Object.keys(videoElements).length + 1}`;
-                    
-                    if (!videoElements[trackLabel]) {
-                        createVideoElement(trackLabel);
-                    }
+  } else if (type === "ice") {
+    // incoming ICE candidate from broadcaster
+    try {
+      if (!candidate || !candidate.candidate) {
+        // end-of-candidates
+        await pc.addIceCandidate(null);
+        log("Remote ICE gathering complete");
+        return;
+      }
+      const ice = {
+        candidate: candidate.candidate,
+        sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex
+      };
+      await pc.addIceCandidate(ice);
+      log("Added remote ICE candidate");
+    } catch (e) {
+      log("Error adding remote ICE: " + e.message);
+    }
+  } else {
+    log("Unknown signaling type: " + type);
+  }
+}
 
-                    const videoElement = videoElements[trackLabel];
-                    const stream = new MediaStream([event.track]);
-                    videoElement.srcObject = stream;
+/* ---------- Controls ---------- */
+document.getElementById('btnReconnect').addEventListener('click', () => {
+  if (pc) pc.close();
+  if (ws) ws.close();
+  document.getElementById('videos').innerHTML = "";
+  trackCount = 0; broadcasterId = null;
+  pc = createPeerConnection();
+  setTimeout(connectSignaling, 200);
+});
 
-                    document.getElementById("trackCount").textContent = Object.keys(videoElements).length;
-                    log(`✅ Video playing: ${trackLabel}`);
-                };
+document.getElementById('btnUnmuteAll').addEventListener('click', () => {
+  document.querySelectorAll('video').forEach(v => { v.muted = false; v.play().catch(()=>{}); });
+  log("Unmuted all videos (user action)");
+});
 
-                // ICE Candidate
-                pc.onicecandidate = (event) => {
-                    if (event.candidate) {
-                        sendMessage({
-                            type: "ice",
-                            from: "viewer1",
-                            to: "broadcaster1",
-                            candidate: {
-                                candidate: event.candidate.candidate,
-                                sdpMid: event.candidate.sdpMid,
-                                sdpMLineIndex: event.candidate.sdpMLineIndex,
-                            },
-                        });
-                    }
-                };
-
-                return true;
-            } catch (e) {
-                showError(`❌ WebRTC init failed: ${e.message}`);
-                return false;
-            }
-        }
-
-        // ========================================
-        // SIGNALING
-        // ========================================
-        
-        async function connectSignaling() {
-            log(`📡 Connecting to: ${CONFIG.signalingUrl}`);
-            updateStatus("🔄 Connecting to signaling server...", false);
-
-            try {
-                ws = new WebSocket(CONFIG.signalingUrl);
-
-                ws.onopen = () => {
-                    log("✅ Connected to signaling server");
-                    document.getElementById("signalingStatus").textContent = "Connected";
-                    updateStatus("📡 Waiting for offer from broadcaster...", false);
-                };
-
-                ws.onmessage = async (event) => {
-                    try {
-                        const msg = JSON.parse(event.data);
-                        await handleSignalingMessage(msg);
-                    } catch (e) {
-                        log(`⚠️  Message parsing error: ${e.message}`, "warn");
-                    }
-                };
-
-                ws.onerror = (error) => {
-                    showError(`❌ WebSocket error`);
-                    log(`❌ WebSocket error: ${error}`, "error");
-                    document.getElementById("signalingStatus").textContent = "Error";
-                };
-
-                ws.onclose = () => {
-                    log("⚠️  Signaling server disconnected");
-                    updateStatus("❌ Disconnected from signaling", false);
-                    document.getElementById("signalingStatus").textContent = "Disconnected";
-                };
-            } catch (e) {
-                showError(`❌ Failed to connect: ${e.message}`);
-            }
-        }
-
-        function sendMessage(msg) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(msg));
-            }
-        }
-
-        async function handleSignalingMessage(msg) {
-            const { type, from, sdp, candidate } = msg;
-
-            if (type === "offer") {
-                log(`📨 Received OFFER from ${from}`);
-                log(`   📹 Tracks: ${msg.num_tracks || "?"}, Cameras: ${(msg.cameras || []).join(", ")}`);
-
-                try {
-                    const offer = new RTCSessionDescription({
-                        type: "offer",
-                        sdp: sdp,
-                    });
-
-                    await pc.setRemoteDescription(offer);
-                    log("✅ Remote description set");
-
-                    const answer = await pc.createAnswer();
-                    await pc.setLocalDescription(answer);
-
-                    sendMessage({
-                        type: "answer",
-                        from: "viewer1",
-                        to: from,
-                        sdp: pc.localDescription.sdp,
-                    });
-
-                    log("✅ Sent ANSWER - stream starting...");
-                    updateStatus("🟡 Connecting...", false);
-                } catch (e) {
-                    showError(`❌ Offer handling failed: ${e.message}`);
-                }
-            } 
-            else if (type === "ice") {
-                try {
-                    if (!candidate.candidate) {
-                        await pc.addIceCandidate(null);
-                        log("✅ Remote ICE gathering complete");
-                        return;
-                    }
-
-                    const iceCandidate = new RTCIceCandidate({
-                        candidate: candidate.candidate,
-                        sdpMid: candidate.sdpMid,
-                        sdpMLineIndex: candidate.sdpMLineIndex,
-                    });
-
-                    await pc.addIceCandidate(iceCandidate);
-                } catch (e) {
-                    log(`⚠️  ICE error: ${e.message}`, "warn");
-                }
-            }
-        }
-
-        // ========================================
-        // STATISTICS
-        // ========================================
-        
-        async function updateStats() {
-            if (!pc) return;
-
-            try {
-                const stats = await pc.getStats();
-                let bytesReceived = 0;
-                let packetsLost = 0;
-                let jitter = 0;
-
-                stats.forEach((report) => {
-                    if (report.type === "inbound-rtp" && report.mediaType === "video") {
-                        bytesReceived += report.bytesReceived || 0;
-                        packetsLost += report.packetsLost || 0;
-                        jitter = Math.round((report.jitter || 0) * 1000);
-                    }
-                });
-
-                document.getElementById("bytesReceived").textContent =
-                    (bytesReceived / (1024 * 1024)).toFixed(2) + " MB";
-                document.getElementById("packetsLost").textContent = packetsLost;
-                document.getElementById("jitter").textContent = jitter + " ms";
-            } catch (e) {
-                // Silent fail for stats
-            }
-        }
-
-        // ========================================
-        // CONTROLS
-        // ========================================
-        
-        function toggleAllMute() {
-            const isMuted = Object.values(videoElements)[0]?.muted;
-            Object.values(videoElements).forEach((video) => {
-                video.muted = !isMuted;
-            });
-            log(`🔊 All videos ${!isMuted ? "muted" : "unmuted"}`);
-        }
-
-        function toggleFullscreen() {
-            const container = document.querySelector(".container");
-            if (!document.fullscreenElement) {
-                container.requestFullscreen().catch(e => {
-                    log(`⚠️  Fullscreen error: ${e.message}`, "warn");
-                });
-            } else {
-                document.exitFullscreen();
-            }
-        }
-
-        function resetConnection() {
-            log("🔄 Resetting connection...");
-            if (pc) pc.close();
-            if (ws) ws.close();
-            videoElements = {};
-            document.getElementById("videosGrid").innerHTML = "";
-            setTimeout(init, 1000);
-        }
-
-        // ========================================
-        // INITIALIZATION
-        // ========================================
-        
-        async function init() {
-            log("=" * 70);
-            log("🎥 VIEWER INITIALIZATION STARTED");
-            log("=" * 70);
-            
-            updateStatus("🔧 Initializing...", false);
-
-            const webrtcOk = await initializeWebRTC();
-            if (!webrtcOk) return;
-
-            await connectSignaling();
-
-            statsInterval = setInterval(updateStats, 1000);
-
-            log("✅ INITIALIZATION COMPLETE");
-            log("=" * 70);
-        }
-
-        // Start on load
-        window.addEventListener("load", init);
-
-        // Cleanup on unload
-        window.addEventListener("beforeunload", () => {
-            if (pc) pc.close();
-            if (ws) ws.close();
-            if (statsInterval) clearInterval(statsInterval);
-        });
-    </script>
+/* ---------- startup ---------- */
+(async function start(){
+  pc = createPeerConnection();
+  connectSignaling();
+})();
+</script>
 </body>
 </html>
