@@ -25,9 +25,17 @@
   <pre id="log"></pre>
 
 <script>
-const SIGNALING_URL = "wss://44.221.81.71:8000/ws/viewer1";
+const SIGNALING_URL = "ws://44.221.81.71:8000/ws/viewer1";
 const VIEWER_ID = "viewer1";
-const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+
+// ICE servers: STUN for NAT traversal, TURN for relay through firewall
+const ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  // AWS Coturn TURN server for cross-network relay
+  { urls: "turn:52.64.197.245:3478?transport=udp", username: "webrtcuser", credential: "AlgoOrange@2025" },
+  { urls: "turn:52.64.197.245:3478?transport=tcp", username: "webrtcuser", credential: "AlgoOrange@2025" }
+];
 
 let pc = null;
 let ws = null;
@@ -115,9 +123,16 @@ function connectSignaling(){
   log("Connecting to signaling: " + SIGNALING_URL);
   ws = new WebSocket(SIGNALING_URL);
 
-  ws.onopen = () => log("Signaling connected");
-  ws.onclose = () => log("Signaling closed");
-  ws.onerror = (e) => log("Signaling error: " + e);
+  ws.onopen = () => {
+    log("✅ Signaling connected");
+    log("Waiting for offer from pusher (camera1)...");
+  };
+  ws.onclose = () => log("❌ Signaling closed");
+  ws.onerror = (e) => {
+    const errMsg = e.message || JSON.stringify(e);
+    log("❌ Signaling error: " + errMsg);
+    log("Make sure: 1) Server is running, 2) URL is correct, 3) Pusher is connected");
+  };
 
   ws.onmessage = async (evt) => {
     let msg;
