@@ -35,6 +35,7 @@ class ClientState:
         self.last_answer: str = None
 
 clients: Dict[str, ClientState] = {}
+cached_offers: Dict[str, dict] = {}  # Store offers from cameras for late-joining viewers
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
@@ -47,6 +48,15 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     logger.info(f"✅ {role} '{client_id}' connected")
     client = ClientState(client_id, websocket)
     clients[client_id] = client
+    
+    # If this is a viewer, send cached offers from all cameras
+    if not is_camera:
+        for camera_id, offer_msg in cached_offers.items():
+            try:
+                await websocket.send_text(json.dumps(offer_msg))
+                logger.info(f"📨 Sent cached offer from '{camera_id}' to viewer '{client_id}'")
+            except Exception as e:
+                logger.error(f"❌ Failed to send cached offer to {client_id}: {e}")
     
     try:
         while True:
@@ -63,9 +73,10 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             # ===== OFFER: Camera sends offer to viewer(s) =====
             if msg_type == "offer":
                 if is_camera:
-                    # Store offer for new viewers
+                    # Cache offer for late-joining viewers
                     client.last_offer = msg.get("sdp")
-                    logger.info(f"📨 Camera '{client_id}' sent offer")
+                    cached_offers[client_id] = msg  # Store the full message
+                    logger.info(f"📨 Camera '{client_id}' sent offer (cached)")
                     
                     # Always broadcast to ALL connected viewers (ignore 'to' field for offers)
                     viewer_count = 0
