@@ -67,22 +67,16 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     client.last_offer = msg.get("sdp")
                     logger.info(f"📨 Camera '{client_id}' sent offer")
                     
-                    # Forward to specific viewer or all viewers
-                    if target and target in clients:
-                        try:
-                            await clients[target].websocket.send_text(data)
-                            logger.info(f"📤 Forwarded offer to viewer '{target}'")
-                        except Exception as e:
-                            logger.error(f"❌ Failed to forward offer to {target}: {e}")
-                    else:
-                        # Broadcast to all connected viewers
-                        for viewer_id, viewer in clients.items():
-                            if not viewer.is_camera:
-                                try:
-                                    await viewer.websocket.send_text(data)
-                                    logger.info(f"📤 Broadcast offer to viewer '{viewer_id}'")
-                                except Exception as e:
-                                    logger.error(f"❌ Failed to broadcast to {viewer_id}: {e}")
+                    # Always broadcast to ALL connected viewers (ignore 'to' field for offers)
+                    viewer_count = 0
+                    for viewer_id, viewer in clients.items():
+                        if not viewer.is_camera:
+                            try:
+                                await viewer.websocket.send_text(data)
+                                viewer_count += 1
+                            except Exception as e:
+                                logger.error(f"❌ Failed to send offer to {viewer_id}: {e}")
+                    logger.info(f"📤 Broadcast offer to {viewer_count} viewer(s)")
             
             # ===== ANSWER: Viewer sends answer back to camera =====
             elif msg_type == "answer":
@@ -101,21 +95,37 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             
             # ===== ICE: Forward ICE candidates =====
             elif msg_type == "ice":
-                if target and target in clients:
+                if is_camera:
+                    # Camera broadcasts ICE candidates to all viewers
+                    for viewer_id, viewer in clients.items():
+                        if not viewer.is_camera:
+                            try:
+                                await viewer.websocket.send_text(data)
+                            except Exception as e:
+                                logger.error(f"❌ Failed to send ICE to {viewer_id}: {e}")
+                elif target and target in clients:
+                    # Viewer sends ICE to specific camera
                     try:
                         await clients[target].websocket.send_text(data)
-                        logger.debug(f"🔄 Forwarded ICE candidate to '{target}'")
                     except Exception as e:
-                        logger.error(f"❌ Failed to forward ICE: {e}")
+                        logger.error(f"❌ Failed to forward ICE to {target}: {e}")
             
             # ===== ICE-COMPLETE: Signal ICE gathering done =====
             elif msg_type == "ice-complete":
-                if target and target in clients:
+                if is_camera:
+                    # Camera broadcasts ICE-complete to all viewers
+                    for viewer_id, viewer in clients.items():
+                        if not viewer.is_camera:
+                            try:
+                                await viewer.websocket.send_text(data)
+                            except Exception as e:
+                                logger.error(f"❌ Failed to send ICE-complete to {viewer_id}: {e}")
+                elif target and target in clients:
+                    # Viewer sends ICE-complete to camera
                     try:
                         await clients[target].websocket.send_text(data)
-                        logger.info(f"✅ Forwarded ICE-complete to '{target}'")
                     except Exception as e:
-                        logger.error(f"❌ Failed to forward ICE-complete: {e}")
+                        logger.error(f"❌ Failed to forward ICE-complete to {target}: {e}")
             
             # ===== PING: Keep-alive heartbeat =====
             elif msg_type == "ping":
