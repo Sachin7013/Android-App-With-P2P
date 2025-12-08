@@ -51,12 +51,15 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     
     # If this is a viewer, send cached offers from all cameras
     if not is_camera:
-        for camera_id, offer_msg in cached_offers.items():
-            try:
-                await websocket.send_text(json.dumps(offer_msg))
-                logger.info(f"📨 Sent cached offer from '{camera_id}' to viewer '{client_id}'")
-            except Exception as e:
-                logger.error(f"❌ Failed to send cached offer to {client_id}: {e}")
+        if cached_offers:
+            for camera_id, offer_msg in cached_offers.items():
+                try:
+                    await websocket.send_text(json.dumps(offer_msg))
+                    logger.info(f"📨 Sent cached offer from '{camera_id}' to viewer '{client_id}'")
+                except Exception as e:
+                    logger.error(f"❌ Failed to send cached offer to {client_id}: {e}")
+        else:
+            logger.info(f"⏳ No cached offers yet for viewer '{client_id}' - waiting for camera...")
     
     try:
         while True:
