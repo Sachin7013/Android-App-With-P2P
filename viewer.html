@@ -254,6 +254,14 @@ async function handleSignalingMessage(msg) {
         // Only log non-duplicate errors
       }
     }
+  } else if (type === "ice-complete") {
+    if (!pc) return;
+    try {
+      await pc.addIceCandidate(null);
+      log("✅ Remote ICE gathering complete");
+    } catch (e) {
+      // Silently ignore
+    }
   }
 }
 
