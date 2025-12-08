@@ -54,7 +54,10 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         if cached_offers:
             for camera_id, offer_msg in cached_offers.items():
                 try:
-                    await websocket.send_text(json.dumps(offer_msg))
+                    # Ensure 'from' field is set to camera ID
+                    offer_with_from = dict(offer_msg)
+                    offer_with_from["from"] = camera_id
+                    await websocket.send_text(json.dumps(offer_with_from))
                     logger.info(f"📨 Sent cached offer from '{camera_id}' to viewer '{client_id}'")
                 except Exception as e:
                     logger.error(f"❌ Failed to send cached offer to {client_id}: {e}")
@@ -86,8 +89,12 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     for viewer_id, viewer in clients.items():
                         if not viewer.is_camera:
                             try:
-                                await viewer.websocket.send_text(data)
+                                # Send the offer with the camera ID as 'from' field
+                                offer_with_from = dict(msg)
+                                offer_with_from["from"] = client_id
+                                await viewer.websocket.send_text(json.dumps(offer_with_from))
                                 viewer_count += 1
+                                logger.info(f"📤 Sent offer to viewer '{viewer_id}'")
                             except Exception as e:
                                 logger.error(f"❌ Failed to send offer to {viewer_id}: {e}")
                     logger.info(f"📤 Broadcast offer to {viewer_count} viewer(s)")
