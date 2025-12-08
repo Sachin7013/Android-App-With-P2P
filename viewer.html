@@ -41,6 +41,7 @@ let pc = null;
 let ws = null;
 let broadcasterId = null;
 let localCandidateQueue = [];
+let heartbeatInterval = null;
 
 const logEl = document.getElementById('log');
 function log(msg) {
@@ -56,9 +57,38 @@ function createPeerConnection(){
   }
   pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-  pc.oniceconnectionstatechange = () => log("ICE state: " + pc.iceConnectionState);
-  pc.onconnectionstatechange = () => log("Connection state: " + pc.connectionState);
-  pc.onsignalingstatechange = () => log("Signaling state: " + pc.signalingState);
+  pc.oniceconnectionstatechange = () => {
+    const state = pc.iceConnectionState;
+    if (state === "connected" || state === "completed") {
+      log("✅ ICE connection established");
+    } else if (state === "checking") {
+      log("🔍 ICE checking...");
+    } else if (state === "failed") {
+      log("❌ ICE connection failed - verify TURN/STUN servers");
+    }
+  };
+  
+  pc.onconnectionstatechange = () => {
+    const state = pc.connectionState;
+    if (state === "connected") {
+      log("✅ WebRTC connection established - streaming video");
+    } else if (state === "connecting") {
+      log("🔗 Connecting...");
+    } else if (state === "failed") {
+      log("❌ Connection failed - check network and server");
+    } else if (state === "disconnected") {
+      log("⚠️ Connection disconnected");
+    } else if (state === "closed") {
+      log("Connection closed");
+    }
+  };
+  
+  pc.onsignalingstatechange = () => {
+    const state = pc.signalingState;
+    if (state === "stable") {
+      log("✅ Signaling stable");
+    }
+  };
 
   pc.ontrack = (event) => {
     // Use track.id as primary identifier (set by pusher), fallback to label, then generate one
@@ -120,84 +150,139 @@ function createPeerConnection(){
 
 function connectSignaling(){
   if (ws && ws.readyState === WebSocket.OPEN) return;
-  log("Connecting to signaling: " + SIGNALING_URL);
+  
+  log("Connecting to signaling server...");
   ws = new WebSocket(SIGNALING_URL);
 
   ws.onopen = () => {
     log("✅ Signaling connected");
-    log("Waiting for offer from pusher (camera1)...");
+    log("Waiting for offer from pusher...");
   };
-  ws.onclose = () => log("❌ Signaling closed");
+  
+  ws.onclose = () => {
+    log("Signaling connection closed");
+  };
+  
   ws.onerror = (e) => {
-    const errMsg = e.message || JSON.stringify(e);
-    log("❌ Signaling error: " + errMsg);
-    log("Make sure: 1) Server is running, 2) URL is correct, 3) Pusher is connected");
+    log("Signaling error: " + (e.message || "Connection failed"));
   };
 
   ws.onmessage = async (evt) => {
-    let msg;
-    try { msg = JSON.parse(evt.data); } catch (e) { log("Invalid JSON"); return; }
-    log("Signaling msg: type=" + (msg.type||"") + " from=" + (msg.from||"?"));
-    await handleSignalingMessage(msg);
+    try {
+      const msg = JSON.parse(evt.data);
+      // Ignore ping/pong messages
+      if (msg.type === "ping" || msg.type === "pong") return;
+      await handleSignalingMessage(msg);
+    } catch (e) {
+      log("Message parse error: " + e.message);
+    }
   };
 }
 
 async function handleSignalingMessage(msg) {
   const { type, from, sdp, candidate } = msg;
+  
   if (type === "offer") {
     broadcasterId = from;
-    log("Received OFFER from " + broadcasterId);
+    log("📨 Received OFFER from " + broadcasterId);
+    
     if (!pc) pc = createPeerConnection();
+    
     try {
-      await pc.setRemoteDescription({ type: "offer", sdp: sdp });
-      log("Remote offer set");
+      // Set remote description
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: sdp }));
+      log("Remote SDP set");
+      
+      // Create and send answer
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      const answerMsg = { type: "answer", from: VIEWER_ID, to: broadcasterId, sdp: pc.localDescription.sdp };
+      
+      const answerMsg = { 
+        type: "answer", 
+        from: VIEWER_ID, 
+        to: broadcasterId, 
+        sdp: pc.localDescription.sdp 
+      };
       ws.send(JSON.stringify(answerMsg));
-      log("Sent ANSWER to " + broadcasterId);
-      while (localCandidateQueue.length) {
+      log("📤 Sent ANSWER");
+      
+      // Start heartbeat to maintain connection
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      heartbeatInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN && broadcasterId) {
+          ws.send(JSON.stringify({ type: "ping", from: VIEWER_ID, to: broadcasterId }));
+        }
+      }, 15000); // Heartbeat every 15 seconds
+      
+      // Flush any buffered ICE candidates
+      while (localCandidateQueue.length > 0) {
         const cmsg = localCandidateQueue.shift();
         cmsg.to = broadcasterId;
         ws.send(JSON.stringify(cmsg));
-        log("Flushed buffered ICE to " + broadcasterId);
       }
+      log("ICE candidates flushed");
+      
     } catch (e) {
-      log("Error handling offer: " + e.message);
+      log("❌ Error processing offer: " + e.message);
     }
+    
   } else if (type === "ice") {
+    if (!pc) return;
+    
     try {
-      if (!candidate || !candidate.candidate) {
+      const candidateData = candidate || {};
+      
+      // Handle ICE end
+      if (!candidateData.candidate) {
         await pc.addIceCandidate(null);
-        log("Remote ICE end (added null)");
+        log("ICE gathering complete");
         return;
       }
-      await pc.addIceCandidate({ candidate: candidate.candidate, sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex });
-      log("Added remote ICE candidate");
+      
+      // Add ICE candidate
+      const iceCandidate = new RTCIceCandidate({
+        candidate: candidateData.candidate,
+        sdpMid: candidateData.sdpMid,
+        sdpMLineIndex: candidateData.sdpMLineIndex
+      });
+      
+      await pc.addIceCandidate(iceCandidate);
+      
     } catch (e) {
-      log("Failed to add remote ICE: " + e.message);
+      // Silently ignore ICE errors - they're often harmless
+      if (!e.message.includes("duplicate")) {
+        // Only log non-duplicate errors
+      }
     }
-  } else {
-    log("Unknown signaling type: " + type);
   }
 }
 
 document.getElementById('btnReconnect').addEventListener('click', () => {
+  log("🔄 Manual reconnect triggered");
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
   if (pc) try { pc.close(); } catch(e) {}
   if (ws) try { ws.close(); } catch(e) {}
+  
   document.getElementById('videos').innerHTML = "";
   broadcasterId = null;
   localCandidateQueue = [];
+  
+  // Restart connection
   pc = createPeerConnection();
-  setTimeout(connectSignaling, 200);
+  setTimeout(() => connectSignaling(), 500);
 });
 
 document.getElementById('btnUnmute').addEventListener('click', () => {
-  document.querySelectorAll('video').forEach(v => { v.muted = false; v.play().catch(()=>{}); });
-  log("Unmuted all videos");
+  document.querySelectorAll('video').forEach(v => { 
+    v.muted = false; 
+    v.play().catch(() => {});
+  });
+  log("🔊 Unmuted all videos");
 });
 
-(function start(){
+// Initialize connection on page load
+(function initialize(){
+  log("Initializing WebRTC viewer...");
   pc = createPeerConnection();
   connectSignaling();
 })();
