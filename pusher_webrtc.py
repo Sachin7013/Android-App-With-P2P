@@ -14,6 +14,10 @@ from aiortc import (
 from aiortc.contrib.media import MediaPlayer
 from aiortc.contrib.signaling import candidate_from_sdp
 import websockets
+from av import VideoFrame
+import cv2
+import numpy as np
+from object_detection import load_detector_from_env
 
 load_dotenv()
 
@@ -21,6 +25,9 @@ SIGNALING_WS = os.getenv("SIGNALING_WS")
 CAM_NAME = os.getenv("CAM_NAME", "camera1")
 RTSP_URL_2 = os.getenv("RTSP_URL_2")
 VIEWER_ID = os.getenv("VIEWER_ID", "viewer1")
+
+ENABLE_DETECTION = os.getenv("ENABLE_DETECTION", "0").strip().lower() in ("1", "true", "yes", "on")
+DETECTION_FRAME_SKIP = int(os.getenv("DETECTION_FRAME_SKIP", "0"))
 
 AWS_TURN_IP = os.getenv("AWS_TURN_IP")
 AWS_TURN_PORT = os.getenv("AWS_TURN_PORT")
@@ -48,12 +55,15 @@ class ProxyVideoTrack(VideoStreamTrack):
     Simple wrapper track that forwards frames from source_track
     but exposes its own unique id/label so browser mapping is clear.
     """
-    def __init__(self, source_track, label):
+    def __init__(self, source_track, label, detector=None, frame_skip: int = 0):
         super().__init__()
         self.source = source_track
         self.label = label
         # Use label as the ID to ensure uniqueness across tracks
         self._id = label
+        self.detector = detector
+        self.frame_skip = max(0, int(frame_skip))
+        self._frame_index = 0
 
     @property
     def id(self):
@@ -65,7 +75,31 @@ class ProxyVideoTrack(VideoStreamTrack):
 
     async def recv(self):
         frame = await self.source.recv()
-        return frame
+        if not self.detector:
+            return frame
+        idx = self._frame_index
+        self._frame_index += 1
+        try:
+            if self.frame_skip and (idx % (self.frame_skip + 1)) != 0:
+                return frame
+            
+            bgr = frame.to_ndarray(format="bgr24")
+            if bgr is None or bgr.size == 0:
+                return frame
+            
+            annotated_bgr, fall_detected = self.detector.annotate(bgr)
+            
+            if annotated_bgr is None or annotated_bgr.size == 0:
+                return frame
+            
+            new_frame = VideoFrame.from_ndarray(annotated_bgr, format="bgr24")
+            new_frame.pts = frame.pts
+            new_frame.time_base = frame.time_base
+            
+            return new_frame
+        except Exception as e:
+            print(f"[pusher] ❌ Detection error on {self.label} frame {idx}: {e}")
+            return frame
 
 
 async def check_player_frames(player, label, timeout=3.0):
@@ -109,6 +143,17 @@ async def run():
         print("[pusher] ICE gathering state:", pc.iceGatheringState)
 
     players = []
+    detector = None
+    last_fall_alert_time = 0
+    if ENABLE_DETECTION:
+        try:
+            detector = load_detector_from_env()
+            if detector:
+                print("[pusher] ✅ YOLOv5 detector loaded")
+            else:
+                print("[pusher] ⚠️ Detection disabled (no YOLOV5_WEIGHTS in .env)")
+        except Exception as e:
+            print(f"[pusher] ❌ Detector error: {e}")
 
     async def create_player(rtsp_url, label):
         try:
@@ -148,7 +193,7 @@ async def run():
             print(f"[pusher] Skipping {label}: player is None")
             return False
         try:
-            proxied = ProxyVideoTrack(player.video, label)
+            proxied = ProxyVideoTrack(player.video, label, detector=detector, frame_skip=DETECTION_FRAME_SKIP)
             # Preferred approach: add a separate transceiver for each track.
             # We attempt to attach proxied directly to addTransceiver if supported.
             try:
@@ -281,7 +326,23 @@ async def run():
                     try:
                         # Keep the connection open - send heartbeat periodically
                         while pc.connectionState not in ["closed", "failed"]:
-                            await asyncio.sleep(20)  # Check every 20 seconds
+                            await asyncio.sleep(2)
+                            
+                            # Check for fall detection and send alert
+                            if detector and detector.fall_detected:
+                                current_time = time.time()
+                                if current_time - last_fall_alert_time > 3:
+                                    try:
+                                        if ws and not ws.closed:
+                                            await ws.send(json.dumps({
+                                                "type": "fall_alert",
+                                                "from": CAM_NAME,
+                                                "to": VIEWER_ID
+                                            }))
+                                            print("[pusher] 🚨 Fall alert sent to viewer")
+                                            last_fall_alert_time = current_time
+                                    except Exception as e:
+                                        print(f"[pusher] Fall alert send failed: {e}")
                             
                             # Send keep-alive ping to maintain signaling connection
                             try:

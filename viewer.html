@@ -7,11 +7,13 @@
   <style>
     body { font-family: Arial, Helvetica, sans-serif; padding:18px; background:#f3f4f8; color:#222; }
     h2 { margin-top:0; }
-    #videos { display:flex; gap:12px; flex-wrap:wrap; }
-    .tile { display:flex; flex-direction:column; gap:6px; align-items:flex-start; }
+    #videos { display:flex; gap:12px; flex-wrap:wrap; position:relative; }
+    .tile { display:flex; flex-direction:column; gap:6px; align-items:flex-start; position:relative; }
     video { width:480px; height:270px; background:#000; border-radius:6px; display:block; }
     #log { margin-top:12px; background:#111; color:#ddd; padding:8px; border-radius:6px; max-height:220px; overflow:auto; font-family:monospace; font-size:12px; }
     button { margin-right:8px; padding:8px 10px; border-radius:6px; }
+    #fallAlert { position:fixed; top:20px; right:20px; background:#8B0000; color:#fff; padding:20px 30px; border-radius:8px; font-size:18px; font-weight:bold; display:none; z-index:1000; box-shadow:0 4px 12px rgba(0,0,0,0.3); animation:pulse 0.6s infinite; }
+    @keyframes pulse { 0%, 100% { opacity:1; } 50% { opacity:0.7; } }
   </style>
 </head>
 <body>
@@ -22,6 +24,7 @@
     <button id="btnUnmute">Unmute All</button>
   </div>
   <div id="videos"></div>
+  <div id="fallAlert">🚨 FALL DETECTED!</div>
   <pre id="log"></pre>
 
 <script>
@@ -42,13 +45,27 @@ let ws = null;
 let broadcasterId = null;
 let localCandidateQueue = [];
 let heartbeatInterval = null;
+let fallAlertTimeout = null;
 
 const logEl = document.getElementById('log');
+const fallAlertEl = document.getElementById('fallAlert');
+
 function log(msg) {
   const t = new Date().toLocaleTimeString();
   logEl.textContent = `[${t}] ${msg}\n` + logEl.textContent;
   document.getElementById('status').textContent = msg.split('\n')[0];
   console.log(msg);
+}
+
+function showFallAlert() {
+  fallAlertEl.style.display = 'block';
+  log("🚨 FALL DETECTED - Alert displayed");
+  
+  if (fallAlertTimeout) clearTimeout(fallAlertTimeout);
+  fallAlertTimeout = setTimeout(() => {
+    fallAlertEl.style.display = 'none';
+    log("Fall alert hidden");
+  }, 5000);
 }
 
 function createPeerConnection(){
@@ -170,8 +187,10 @@ function connectSignaling(){
   ws.onmessage = async (evt) => {
     try {
       const msg = JSON.parse(evt.data);
-      // Ignore ping/pong messages
       if (msg.type === "ping" || msg.type === "pong") return;
+      if (msg.type === "fall_alert") {
+        log("🚨 FALL ALERT RECEIVED from " + (msg.from || "unknown"));
+      }
       await handleSignalingMessage(msg);
     } catch (e) {
       log("Message parse error: " + e.message);
@@ -180,7 +199,12 @@ function connectSignaling(){
 }
 
 async function handleSignalingMessage(msg) {
-  const { type, from, sdp, candidate } = msg;
+  const { type, from, sdp, candidate, fall_detected } = msg;
+  
+  if (type === "fall_alert") {
+    showFallAlert();
+    return;
+  }
   
   if (type === "offer") {
     broadcasterId = from;
