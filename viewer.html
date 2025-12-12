@@ -46,6 +46,11 @@ let broadcasterId = null;
 let localCandidateQueue = [];
 let heartbeatInterval = null;
 let fallAlertTimeout = null;
+let reconnectAttempts = 0;
+let maxReconnectAttempts = 5;
+let reconnectDelay = 3000;
+let videoTracks = {};
+let lastPongTime = Date.now();
 
 const logEl = document.getElementById('log');
 const fallAlertEl = document.getElementById('fallAlert');
@@ -92,9 +97,23 @@ function createPeerConnection(){
     } else if (state === "connecting") {
       log("🔗 Connecting...");
     } else if (state === "failed") {
-      log("❌ Connection failed - check network and server");
+      log("❌ Connection failed - attempting to reconnect...");
+      // Trigger reconnection after a delay
+      setTimeout(() => {
+        if (pc && pc.connectionState === "failed") {
+          log("🔄 Initiating reconnection...");
+          document.getElementById('btnReconnect').click();
+        }
+      }, 2000);
     } else if (state === "disconnected") {
-      log("⚠️ Connection disconnected");
+      log("⚠️ Connection disconnected - will attempt recovery");
+      // Give it a moment to recover naturally
+      setTimeout(() => {
+        if (pc && pc.connectionState === "disconnected") {
+          log("🔄 Reconnecting after disconnect...");
+          document.getElementById('btnReconnect').click();
+        }
+      }, 3000);
     } else if (state === "closed") {
       log("Connection closed");
     }
@@ -111,7 +130,9 @@ function createPeerConnection(){
     // Use track.id as primary identifier (set by pusher), fallback to label, then generate one
     const trackId = event.track.id || event.track.label || ("track-" + (document.querySelectorAll('.tile').length+1));
     let tile = document.getElementById('tile-' + trackId);
+    
     if (!tile) {
+      // Create new tile for this track
       tile = document.createElement('div');
       tile.id = 'tile-' + trackId;
       tile.className = 'tile';
@@ -121,25 +142,43 @@ function createPeerConnection(){
       video.id = 'vid-' + trackId;
       video.autoplay = true;
       video.playsInline = true;
-      video.muted = true; // start muted to allow autoplay
+      video.muted = true;
       video.controls = true;
 
       tile.appendChild(caption);
       tile.appendChild(video);
       document.getElementById('videos').appendChild(tile);
 
+      // Store track reference
+      videoTracks[trackId] = { video, stream: null };
+      
+      // Create MediaStream and set it
       const ms = new MediaStream();
       ms.addTrack(event.track);
       video.srcObject = ms;
+      videoTracks[trackId].stream = ms;
 
-      video.play().catch(e => log("video.play() rejected: " + e.message));
+      // Wait for metadata to load before playing
+      const playVideo = () => {
+        video.play().catch(e => log("video.play() rejected: " + e.message));
+        video.removeEventListener('loadedmetadata', playVideo);
+      };
+      video.addEventListener('loadedmetadata', playVideo);
+      
       log(`✅ Created tile for track id=${trackId} label=${event.track.label || 'N/A'}`);
     } else {
+      // Reuse existing video element - don't recreate MediaStream
       const video = tile.querySelector('video');
-      const ms = new MediaStream();
-      ms.addTrack(event.track);
-      video.srcObject = ms;
-      log(`🔄 Updated tile for track id=${trackId}`);
+      if (videoTracks[trackId] && videoTracks[trackId].stream) {
+        // Add track to existing stream
+        const existingStream = videoTracks[trackId].stream;
+        try {
+          existingStream.addTrack(event.track);
+          log(`🔄 Added track to existing stream for id=${trackId}`);
+        } catch (e) {
+          log(`⚠️ Could not add track: ${e.message}`);
+        }
+      }
     }
   };
 
@@ -173,11 +212,20 @@ function connectSignaling(){
 
   ws.onopen = () => {
     log("✅ Signaling connected");
+    reconnectAttempts = 0;
     log("Waiting for offer from pusher...");
   };
   
   ws.onclose = () => {
     log("Signaling connection closed");
+    // Attempt to reconnect
+    if (reconnectAttempts < maxReconnectAttempts) {
+      reconnectAttempts++;
+      log(`🔄 Reconnecting... (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+      setTimeout(connectSignaling, reconnectDelay);
+    } else {
+      log("❌ Max reconnection attempts reached");
+    }
   };
   
   ws.onerror = (e) => {
@@ -187,7 +235,12 @@ function connectSignaling(){
   ws.onmessage = async (evt) => {
     try {
       const msg = JSON.parse(evt.data);
-      if (msg.type === "ping" || msg.type === "pong") return;
+      if (msg.type === "ping") return;
+      if (msg.type === "pong") {
+        // Update last pong time for heartbeat monitoring
+        lastPongTime = Date.now();
+        return;
+      }
       if (msg.type === "fall_alert") {
         log("🚨 FALL ALERT RECEIVED from " + (msg.from || "unknown"));
       }
@@ -230,13 +283,20 @@ async function handleSignalingMessage(msg) {
       ws.send(JSON.stringify(answerMsg));
       log("📤 Sent ANSWER");
       
-      // Start heartbeat to maintain connection
+      // Start heartbeat to maintain connection and detect stale connections
       if (heartbeatInterval) clearInterval(heartbeatInterval);
+      lastPongTime = Date.now();
       heartbeatInterval = setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN && broadcasterId) {
+          // Check if we haven't received pong in 30 seconds
+          if (Date.now() - lastPongTime > 30000) {
+            log("⚠️ No pong received - connection may be stale");
+            document.getElementById('btnReconnect').click();
+            return;
+          }
           ws.send(JSON.stringify({ type: "ping", from: VIEWER_ID, to: broadcasterId }));
         }
-      }, 15000); // Heartbeat every 15 seconds
+      }, 10000); // Heartbeat every 10 seconds
       
       // Flush any buffered ICE candidates
       while (localCandidateQueue.length > 0) {

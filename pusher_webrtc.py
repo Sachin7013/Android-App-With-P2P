@@ -328,12 +328,13 @@ async def run():
                     print("[pusher] ✅ Connection established, maintaining stream indefinitely...")
                     try:
                         # Keep the connection open - send heartbeat periodically
+                        last_heartbeat = time.time()
                         while pc.connectionState not in ["closed", "failed"]:
-                            await asyncio.sleep(2)
+                            await asyncio.sleep(1)
+                            current_time = time.time()
                             
                             # Check for fall detection and send alert
                             if detector and detector.fall_detected:
-                                current_time = time.time()
                                 if current_time - last_fall_alert_time > 3:
                                     try:
                                         if ws and not ws.closed:
@@ -347,17 +348,24 @@ async def run():
                                     except Exception as e:
                                         print(f"[pusher] Fall alert send failed: {e}")
                             
-                            # Send keep-alive ping to maintain signaling connection
-                            try:
-                                if ws and not ws.closed:
-                                    await ws.send(json.dumps({
-                                        "type": "ping",
-                                        "from": CAM_NAME,
-                                        "to": VIEWER_ID
-                                    }))
-                            except Exception as e:
-                                print(f"[pusher] Keep-alive ping failed: {e}")
-                                break
+                            # Send keep-alive ping every 10 seconds to maintain signaling connection
+                            if current_time - last_heartbeat > 10:
+                                try:
+                                    if ws and not ws.closed:
+                                        await ws.send(json.dumps({
+                                            "type": "ping",
+                                            "from": CAM_NAME,
+                                            "to": VIEWER_ID
+                                        }))
+                                        last_heartbeat = current_time
+                                except Exception as e:
+                                    print(f"[pusher] Keep-alive ping failed: {e}")
+                                    break
+                            
+                            # Monitor connection state
+                            if pc.connectionState == "disconnected":
+                                print("[pusher] ⚠️ Connection disconnected, attempting recovery...")
+                                await asyncio.sleep(2)
                     except Exception as e:
                         print(f"[pusher] Keep-alive loop error: {e}")
 

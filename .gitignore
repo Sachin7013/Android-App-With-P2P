@@ -3,3 +3,5 @@ venvP2P
 detected_frames
 *.pt
 __init__.py
+
+__pycache__
