@@ -8,7 +8,7 @@ from ultralytics import YOLO
 
 
 class YOLOv8PoseDetector:
-    def __init__(self, conf: float = 0.5, device: str = "cpu"):
+    def __init__(self, conf: float = 0.7, device: str = "cpu"):
         self.device = device
         print(f"[detector] Loading YOLOv8 Pose Detection model")
         self.model = YOLO("yolov8l-pose.pt")

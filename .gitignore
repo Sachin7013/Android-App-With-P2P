@@ -2,3 +2,4 @@ venvP2P
 .env
 detected_frames
 *.pt
+__init__.py

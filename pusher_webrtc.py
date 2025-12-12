@@ -23,6 +23,7 @@ load_dotenv()
 
 SIGNALING_WS = os.getenv("SIGNALING_WS")
 CAM_NAME = os.getenv("CAM_NAME", "camera1")
+RTSP_URL_1 = os.getenv("RTSP_URL_1")
 RTSP_URL_2 = os.getenv("RTSP_URL_2")
 VIEWER_ID = os.getenv("VIEWER_ID", "viewer1")
 
@@ -177,11 +178,12 @@ async def run():
             print(f"[pusher] ❌ Error creating player for {label}: {e}")
             return (label, None, False)
 
-    # create player
+    # create players
+    info1 = await create_player(RTSP_URL_1, "cam1")
     info2 = await create_player(RTSP_URL_2, "cam2")
 
     # If no players, exit
-    if info2[1] is None:
+    if info1[1] is None and info2[1] is None:
         print("[pusher] ❌ No players created, exiting")
         await pc.close()
         return
@@ -224,9 +226,10 @@ async def run():
             return False
 
     # Add transceivers for each created player
+    added1 = await add_transceiver_for((info1[0], info1[1]))
     added2 = await add_transceiver_for((info2[0], info2[1]))
 
-    print(f"[pusher] Completed adding transceivers: cam2_added={added2}")
+    print(f"[pusher] Completed adding transceivers: cam1_added={added1}, cam2_added={added2}")
 
     # Connect signaling
     ws_url = SIGNALING_WS.rstrip("/") + "/" + CAM_NAME
