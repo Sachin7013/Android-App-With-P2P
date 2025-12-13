@@ -11,7 +11,7 @@ class YOLOv8PoseDetector:
     def __init__(self, conf: float = 0.7, device: str = "cpu"):
         self.device = device
         print(f"[detector] Loading YOLOv8 Pose Detection model")
-        self.model = YOLO("yolov8l-pose.pt")
+        self.model = YOLO("yolov8m-pose.pt")
         self.model.to(self.device)
         self.conf = conf
         self.pose_detected = False
