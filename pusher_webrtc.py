@@ -1,4 +1,7 @@
-# # pusher_webrtc_fixed.py
+"""
+WebRTC Pusher - Streams multiple RTSP cameras with YOLOv8 pose detection
+Sends video to a remote viewer via WebRTC with TURN relay support
+"""
 import asyncio
 import json
 import os
@@ -19,23 +22,31 @@ import cv2
 import numpy as np
 from object_detection import load_detector_from_env
 
+# Load environment variables from .env file
 load_dotenv()
 
-SIGNALING_WS = os.getenv("SIGNALING_WS")
-CAM_NAME = os.getenv("CAM_NAME", "camera1")
-RTSP_URL_1 = os.getenv("RTSP_URL_1")
-RTSP_URL_2 = os.getenv("RTSP_URL_2")
-VIEWER_ID = os.getenv("VIEWER_ID", "viewer1")
+# ============ Configuration from .env file ============
+SIGNALING_WS = os.getenv("SIGNALING_WS")  # WebSocket server URL for signaling
+CAM_NAME = os.getenv("CAM_NAME", "camera1")  # Camera identifier
+RTSP_URL_1 = os.getenv("RTSP_URL_1")  # First camera RTSP stream URL
+RTSP_URL_2 = os.getenv("RTSP_URL_2")  # Second camera RTSP stream URL
+VIEWER_ID = os.getenv("VIEWER_ID", "viewer1")  # Viewer identifier
 
+# ============ Detection Configuration ============
 ENABLE_DETECTION = os.getenv("ENABLE_DETECTION", "0").strip().lower() in ("1", "true", "yes", "on")
-DETECTION_FRAME_SKIP = int(os.getenv("DETECTION_FRAME_SKIP", "0"))
+DETECTION_FRAME_SKIP = int(os.getenv("DETECTION_FRAME_SKIP", "5"))  # Process every Nth frame (5 = every 5th frame)
 
+# ============ TURN Server Configuration (for NAT traversal) ============
 AWS_TURN_IP = os.getenv("AWS_TURN_IP")
 AWS_TURN_PORT = os.getenv("AWS_TURN_PORT")
 AWS_TURN_USER = os.getenv("AWS_TURN_USER")
 AWS_TURN_PASS = os.getenv("AWS_TURN_PASS")
 
+# ============ ICE Servers Setup ============
+# Start with Google's public STUN server
 ICE_SERVERS = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
+
+# Add TURN server if credentials are provided (for better NAT traversal)
 if AWS_TURN_IP and AWS_TURN_PORT and AWS_TURN_USER and AWS_TURN_PASS:
     ICE_SERVERS += [
         RTCIceServer(
@@ -53,8 +64,14 @@ if AWS_TURN_IP and AWS_TURN_PORT and AWS_TURN_USER and AWS_TURN_PASS:
 
 class ProxyVideoTrack(VideoStreamTrack):
     """
-    Simple wrapper track that forwards frames from source_track
-    but exposes its own unique id/label so browser mapping is clear.
+    Wrapper track that forwards frames from RTSP source to WebRTC.
+    Optionally applies YOLOv8 pose detection to frames.
+    
+    Args:
+        source_track: The source video track (from MediaPlayer)
+        label: Camera label (e.g., "cam1", "cam2")
+        detector: YOLOv8PoseDetector instance (optional)
+        frame_skip: Skip N frames between detections (e.g., 5 = detect every 5th frame)
     """
     def __init__(self, source_track, label, detector=None, frame_skip: int = 0):
         super().__init__()
@@ -68,36 +85,53 @@ class ProxyVideoTrack(VideoStreamTrack):
 
     @property
     def id(self):
+        """Return unique track ID"""
         return self._id
 
     @property
     def kind(self):
+        """Return track kind (always 'video')"""
         return getattr(self.source, "kind", "video")
 
     async def recv(self):
+        """
+        Receive frame from source and optionally apply pose detection.
+        Returns annotated frame if detection is enabled, otherwise raw frame.
+        """
         frame = await self.source.recv()
+        
+        # If no detector, return raw frame
         if not self.detector:
             return frame
+        
         idx = self._frame_index
         self._frame_index += 1
+        
         try:
+            # Skip frames based on DETECTION_FRAME_SKIP setting
+            # This reduces CPU load by processing fewer frames
             if self.frame_skip and (idx % (self.frame_skip + 1)) != 0:
                 return frame
             
+            # Convert frame to OpenCV format (BGR)
             bgr = frame.to_ndarray(format="bgr24")
             if bgr is None or bgr.size == 0:
                 return frame
             
-            annotated_bgr, fall_detected = self.detector.annotate(bgr)
+            # Run pose detection on the frame  , yolo v8 pose detection while live detection
+            annotated_bgr, pose_detected = self.detector.annotate(bgr)
             
+            # Validate annotated frame
             if annotated_bgr is None or annotated_bgr.size == 0:
                 return frame
             
+            # Convert back to VideoFrame format for WebRTC
             new_frame = VideoFrame.from_ndarray(annotated_bgr, format="bgr24")
             new_frame.pts = frame.pts
             new_frame.time_base = frame.time_base
             
             return new_frame
+            
         except Exception as e:
             print(f"[pusher] ❌ Detection error on {self.label} frame {idx}: {e}")
             return frame
@@ -146,13 +180,15 @@ async def run():
     players = []
     detector = None
     last_fall_alert_time = 0
+    
+    # Load YOLOv8 pose detector if detection is enabled
     if ENABLE_DETECTION:
         try:
             detector = load_detector_from_env()
             if detector:
-                print("[pusher] ✅ YOLOv5 detector loaded")
+                print("[pusher] ✅ YOLOv8 Pose detector loaded")
             else:
-                print("[pusher] ⚠️ Detection disabled (no YOLOV5_WEIGHTS in .env)")
+                print("[pusher] ⚠️ Detection disabled")
         except Exception as e:
             print(f"[pusher] ❌ Detector error: {e}")
 
@@ -378,9 +414,12 @@ async def run():
 
 if __name__ == "__main__":
     print("="*60)
-    print("Multi-Camera Pusher FIXED")
+    print("WebRTC Multi-Camera Pusher with YOLOv8 Pose Detection")
     print(f"CAM_NAME: {CAM_NAME}")
+    print(f"RTSP 1: {RTSP_URL_1}")
     print(f"RTSP 2: {RTSP_URL_2}")
+    print(f"Detection: {'ENABLED' if ENABLE_DETECTION else 'DISABLED'}")
+    print(f"Frame Skip: {DETECTION_FRAME_SKIP}")
     print("="*60)
     try:
         asyncio.run(run())
