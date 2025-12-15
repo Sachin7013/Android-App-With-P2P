@@ -48,6 +48,29 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     client = ClientState(client_id, websocket)
     clients[client_id] = client
     
+    # If a viewer connects after its camera, immediately replay the last stored offer
+    # from that camera so the WebRTC handshake can start without restarting the sender.
+    if not is_camera:
+        try:
+            # Expected IDs: "viewer:<user_id>" and "camera:<user_id>"
+            if ":" in client_id:
+                _, user_part = client_id.split(":", 1)
+                camera_peer_id = f"camera:{user_part}"
+                camera_client = clients.get(camera_peer_id)
+                if camera_client and camera_client.last_offer:
+                    offer_msg = {
+                        "type": "offer",
+                        "from": camera_peer_id,
+                        "to": client_id,
+                        "sdp": camera_client.last_offer,
+                    }
+                    await websocket.send_text(json.dumps(offer_msg))
+                    logger.info(
+                        f"📤 Replayed stored offer from '{camera_peer_id}' to late viewer '{client_id}'"
+                    )
+        except Exception as e:
+            logger.error(f"❌ Failed to replay stored offer to '{client_id}': {e}")
+    
     try:
         while True:
             try:
